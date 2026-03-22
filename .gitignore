@@ -1,0 +1,14 @@
+# Maven
+target/
+
+# IDE - NetBeans
+nbactions.xml
+nb-configuration.xml
+nbproject/
+
+# Credenciales
+src/main/resources/application*.properties
+
+# OS
+.DS_Store
+Thumbs.db
