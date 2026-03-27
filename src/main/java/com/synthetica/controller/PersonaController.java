@@ -13,11 +13,11 @@ import java.util.Map;
 public class PersonaController {
 
     private final PersonaService personaService;
-    
-     public PersonaController(PersonaService personaService) {
+
+    public PersonaController(PersonaService personaService) {
         this.personaService = personaService;
     }
-     
+
     @GetMapping
     public List<Persona> listar() {
         return personaService.listarTodas();

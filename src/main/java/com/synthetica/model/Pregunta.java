@@ -1,11 +1,14 @@
 package com.synthetica.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.synthetica.model.enums.TipoPregunta;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 
 @Entity
 @Table(name = "preguntas")
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Pregunta {
 
     @Id
@@ -14,6 +17,7 @@ public class Pregunta {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "encuesta_id", nullable = false)
+    @JsonIgnore
     private Encuesta encuesta;
 
     @NotBlank

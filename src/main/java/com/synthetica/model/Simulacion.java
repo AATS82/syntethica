@@ -1,5 +1,7 @@
 package com.synthetica.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.synthetica.model.enums.EstadoSimulacion;
 import jakarta.persistence.*;
 
@@ -9,6 +11,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "simulaciones")
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Simulacion {
 
     @Id
@@ -35,18 +38,20 @@ public class Simulacion {
     private LocalDateTime finalizadoEn;
 
     @OneToMany(mappedBy = "simulacion", cascade = CascadeType.ALL)
+    @JsonIgnore
     private List<Respuesta> respuestas = new ArrayList<>();
 
     // ── Helper para calcular % de progreso ────────────────────────────────────
     @Transient
     public int getPorcentajeProgreso() {
-        if (totalRespuestas == null || totalRespuestas == 0) return 0;
+        if (totalRespuestas == null || totalRespuestas == 0) {
+            return 0;
+        }
         return (int) ((respuestasCompletadas * 100.0) / totalRespuestas);
     }
 
     public Simulacion() {
     }
-    
 
     public Long getId() {
         return id;
@@ -111,5 +116,5 @@ public class Simulacion {
     public void setRespuestas(List<Respuesta> respuestas) {
         this.respuestas = respuestas;
     }
-    
+
 }

@@ -1,5 +1,6 @@
 package com.synthetica.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 
@@ -9,6 +10,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "encuestas")
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Encuesta {
 
     @Id

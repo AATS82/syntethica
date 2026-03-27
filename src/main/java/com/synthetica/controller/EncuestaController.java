@@ -18,8 +18,6 @@ public class EncuestaController {
     public EncuestaController(EncuestaService encuestaService) {
         this.encuestaService = encuestaService;
     }
-    
-    
 
     @GetMapping
     public List<Encuesta> listar() {

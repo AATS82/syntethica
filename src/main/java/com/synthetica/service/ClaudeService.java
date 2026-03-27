@@ -32,7 +32,7 @@ public class ClaudeService {
     private int maxTokens;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
+            .connectTimeout(Duration.ofSeconds(90))
             .build();
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -41,13 +41,13 @@ public class ClaudeService {
     public String responderPregunta(Persona persona, Pregunta pregunta, String contextoEncuesta) throws Exception {
 
         String systemPrompt = buildSystemPrompt(persona, contextoEncuesta, pregunta.getTipo());
-        String userPrompt   = buildUserPrompt(pregunta);
+        String userPrompt = buildUserPrompt(pregunta);
 
         Map<String, Object> body = Map.of(
-            "model",      model,
-            "max_tokens", maxTokens,
-            "system",     systemPrompt,
-            "messages",   List.of(Map.of("role", "user", "content", userPrompt))
+                "model", model,
+                "max_tokens", maxTokens,
+                "system", systemPrompt,
+                "messages", List.of(Map.of("role", "user", "content", userPrompt))
         );
 
         String jsonBody = mapper.writeValueAsString(body);
@@ -94,9 +94,9 @@ public class ClaudeService {
             """, pais, pais);
 
         Map<String, Object> body = Map.of(
-            "model",      model,
-            "max_tokens", 512,
-            "messages",   List.of(Map.of("role", "user", "content", prompt))
+                "model", model,
+                "max_tokens", 512,
+                "messages", List.of(Map.of("role", "user", "content", prompt))
         );
 
         String jsonBody = mapper.writeValueAsString(body);
@@ -121,28 +121,30 @@ public class ClaudeService {
     }
 
     // ── Builders de prompts ───────────────────────────────────────────────────
-
     private String buildSystemPrompt(Persona persona, String contextoEncuesta, TipoPregunta tipo) {
         StringBuilder sb = new StringBuilder();
 
         sb.append(persona.toPromptContext());
         sb.append("\n\n");
-        sb.append("Estás participando en una encuesta. ");
+        sb.append("Estás respondiendo una encuesta. ");
 
         if (contextoEncuesta != null && !contextoEncuesta.isBlank()) {
-            sb.append("Contexto de la encuesta: ").append(contextoEncuesta).append("\n\n");
+            sb.append("Contexto: ").append(contextoEncuesta).append(" ");
         }
 
-        sb.append("Responde de forma auténtica y coherente con tu perfil demográfico, ");
-        sb.append("tu nivel educacional, tu situación económica y tus rasgos de personalidad. ");
-        sb.append("Habla en primera persona, como lo haría una persona real en una encuesta.");
+        sb.append("""
+        
+        INSTRUCCIONES IMPORTANTES:
+        - Responde como lo haría esta persona real, con su vocabulario, nivel educacional y perspectiva propia.
+        - NO uses frases introductorias genéricas como "Mira", "Honestamente", "La verdad es que".
+        - Varía el estilo: a veces directo, a veces emocional, a veces escéptico, a veces entusiasta.
+        - Refleja tu situación personal concreta en la respuesta.
+        - Máximo 3 oraciones. Sin rodeos.
+        - Primera persona, tono natural y auténtico.
+        """);
 
         if (tipo == TipoPregunta.LIKERT) {
-            sb.append("\n\nIMPORTANTE: La pregunta es de escala Likert 1-5. ");
-            sb.append("Responde SOLO con el número (1, 2, 3, 4 o 5) seguido de una breve justificación de máximo 2 oraciones. ");
-            sb.append("Formato: \"[número]: [justificación]\"");
-        } else {
-            sb.append("\n\nResponde de forma natural y directa. Máximo 3-4 oraciones.");
+            sb.append("Responde SOLO con número 1-5 seguido de máximo 1 oración. Formato: \"[número]: [razón]\"");
         }
 
         return sb.toString();
@@ -154,4 +156,31 @@ public class ClaudeService {
         }
         return pregunta.getTexto();
     }
+    public String llamarClaude(String prompt) throws Exception {
+    Map<String, Object> body = Map.of(
+        "model", model,
+        "max_tokens", 1024,
+        "messages", List.of(Map.of("role", "user", "content", prompt))
+    );
+
+    String jsonBody = mapper.writeValueAsString(body);
+
+    HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(apiUrl))
+            .header("Content-Type", "application/json")
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", "2023-06-01")
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+            .timeout(Duration.ofSeconds(60))
+            .build();
+
+    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+    if (response.statusCode() != 200) {
+        throw new RuntimeException("Claude API error: " + response.statusCode());
+    }
+
+    JsonNode json = mapper.readTree(response.body());
+    return json.path("content").get(0).path("text").asText().trim();
+}
 }

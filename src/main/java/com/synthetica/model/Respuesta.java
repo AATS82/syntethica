@@ -1,11 +1,14 @@
 package com.synthetica.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "respuestas")
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Respuesta {
 
     @Id
@@ -14,6 +17,7 @@ public class Respuesta {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "simulacion_id", nullable = false)
+    @JsonIgnore
     private Simulacion simulacion;
 
     @ManyToOne(fetch = FetchType.LAZY)
