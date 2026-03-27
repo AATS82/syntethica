@@ -82,4 +82,10 @@ public class EncuestaRapidaController {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
+
+    @GetMapping("/recientes")
+    public ResponseEntity<List<Map<String, Object>>> recientes() {
+        List<Map<String, Object>> result = simulacionService.listarRecientes();
+        return ResponseEntity.ok(result);
+    }
 }

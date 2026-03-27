@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -24,28 +25,32 @@ public class SimulacionService {
     private static final Logger log = LoggerFactory.getLogger(SimulacionService.class);
 
     private final SimulacionRepository simulacionRepository;
-    private final RespuestaRepository  respuestaRepository;
-    private final EncuestaService      encuestaService;
-    private final PersonaService       personaService;
-    private final ClaudeService        claudeService;
-        
+    private final RespuestaRepository respuestaRepository;
+    private final EncuestaService encuestaService;
+    private final PersonaService personaService;
+    private final ClaudeService claudeService;
+
     public SimulacionService(SimulacionRepository simulacionRepository, RespuestaRepository respuestaRepository,
-                         EncuestaService encuestaService, PersonaService personaService, ClaudeService claudeService) {
-    this.simulacionRepository = simulacionRepository;
-    this.respuestaRepository = respuestaRepository;
-    this.encuestaService = encuestaService;
-    this.personaService = personaService;
-    this.claudeService = claudeService;
-}
-    
+            EncuestaService encuestaService, PersonaService personaService, ClaudeService claudeService) {
+        this.simulacionRepository = simulacionRepository;
+        this.respuestaRepository = respuestaRepository;
+        this.encuestaService = encuestaService;
+        this.personaService = personaService;
+        this.claudeService = claudeService;
+    }
+
     // ── Crear simulación y lanzarla de forma asíncrona ────────────────────────
     @Transactional
     public Simulacion iniciar(Long encuestaId, List<Long> personaIds) {
         Encuesta encuesta = encuestaService.obtenerPorId(encuestaId);
         List<Persona> personas = personaService.obtenerPorIds(personaIds);
 
-        if (personas.isEmpty()) throw new RuntimeException("No se encontraron personas con los IDs proporcionados");
-        if (encuesta.getPreguntas().isEmpty()) throw new RuntimeException("La encuesta no tiene preguntas");
+        if (personas.isEmpty()) {
+            throw new RuntimeException("No se encontraron personas con los IDs proporcionados");
+        }
+        if (encuesta.getPreguntas().isEmpty()) {
+            throw new RuntimeException("La encuesta no tiene preguntas");
+        }
 
         Simulacion simulacion = new Simulacion();
         simulacion.setEncuesta(encuesta);
@@ -75,7 +80,7 @@ public class SimulacionService {
                 CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                     try {
                         String respuestaTexto = claudeService.responderPregunta(
-                            persona, pregunta, encuesta.getContexto()
+                                persona, pregunta, encuesta.getContexto()
                         );
 
                         Respuesta respuesta = new Respuesta();
@@ -96,7 +101,7 @@ public class SimulacionService {
 
                     } catch (Exception e) {
                         log.error("Error al obtener respuesta de Claude para persona {} pregunta {}: {}",
-                            persona.getId(), pregunta.getId(), e.getMessage());
+                                persona.getId(), pregunta.getId(), e.getMessage());
                         // Guardar respuesta de error para no bloquear el progreso
                         Respuesta respuestaError = new Respuesta();
                         respuestaError.setSimulacion(simulacion);
@@ -150,11 +155,32 @@ public class SimulacionService {
 
     // ── Helper: extraer número 1-5 de la respuesta Likert ─────────────────────
     private Integer parsearValorLikert(String texto) {
-        if (texto == null || texto.isBlank()) return null;
+        if (texto == null || texto.isBlank()) {
+            return null;
+        }
         // Busca el primer dígito entre 1 y 5 al inicio del texto
         for (char c : texto.toCharArray()) {
-            if (c >= '1' && c <= '5') return c - '0';
+            if (c >= '1' && c <= '5') {
+                return c - '0';
+            }
         }
         return null;
     }
+
+    public List<Map<String, Object>> listarRecientes() {
+        return simulacionRepository.findTop10ByOrderByCreadoEnDesc()
+                .stream()
+                .map(s -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", s.getId());
+                    m.put("pregunta", s.getEncuesta().getTitulo());
+                    m.put("total", s.getTotalRespuestas());
+                    m.put("estado", s.getEstado().name());
+                    m.put("fecha", s.getCreadoEn() != null
+                            ? s.getCreadoEn().toLocalDate().toString() : "");
+                    return m;
+                })
+                .toList();
+    }
+
 }

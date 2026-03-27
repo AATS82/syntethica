@@ -156,31 +156,32 @@ public class ClaudeService {
         }
         return pregunta.getTexto();
     }
+
     public String llamarClaude(String prompt) throws Exception {
-    Map<String, Object> body = Map.of(
-        "model", model,
-        "max_tokens", 1024,
-        "messages", List.of(Map.of("role", "user", "content", prompt))
-    );
+        Map<String, Object> body = Map.of(
+                "model", model,
+                "max_tokens", 1024,
+                "messages", List.of(Map.of("role", "user", "content", prompt))
+        );
 
-    String jsonBody = mapper.writeValueAsString(body);
+        String jsonBody = mapper.writeValueAsString(body);
 
-    HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(apiUrl))
-            .header("Content-Type", "application/json")
-            .header("x-api-key", apiKey)
-            .header("anthropic-version", "2023-06-01")
-            .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-            .timeout(Duration.ofSeconds(60))
-            .build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrl))
+                .header("Content-Type", "application/json")
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .timeout(Duration.ofSeconds(60))
+                .build();
 
-    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-    if (response.statusCode() != 200) {
-        throw new RuntimeException("Claude API error: " + response.statusCode());
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("Claude API error: " + response.statusCode());
+        }
+
+        JsonNode json = mapper.readTree(response.body());
+        return json.path("content").get(0).path("text").asText().trim();
     }
-
-    JsonNode json = mapper.readTree(response.body());
-    return json.path("content").get(0).path("text").asText().trim();
-}
 }

@@ -8,5 +8,8 @@ import java.util.List;
 
 @Repository
 public interface SimulacionRepository extends JpaRepository<Simulacion, Long> {
+
     List<Simulacion> findByEncuestaIdOrderByCreadoEnDesc(Long encuestaId);
+
+    List<Simulacion> findTop10ByOrderByCreadoEnDesc();
 }
