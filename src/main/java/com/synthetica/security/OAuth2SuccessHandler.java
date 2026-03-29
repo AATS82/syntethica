@@ -19,7 +19,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final JwtService jwtService;
     private final UsuarioRepository usuarioRepository;
 
-    @Value("${app.frontend-url:http://localhost:3000}")
+    @Value("${app.frontend-url:http://localhost:4200}")
     private String frontendUrl;
 
     public OAuth2SuccessHandler(JwtService jwtService, UsuarioRepository usuarioRepository) {
@@ -45,7 +45,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String token = jwtService.generateToken(usuario);
 
         getRedirectStrategy().sendRedirect(request, response,
-                frontendUrl + "/auth/callback?token=" + token);
+                frontendUrl + "/oauth2/redirect?token=" + token);
     }
 
     private Usuario actualizarUsuario(Usuario u, String nombre, String foto, String googleId) {

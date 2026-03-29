@@ -10,6 +10,9 @@ import java.util.List;
 @Repository
 public interface RespuestaRepository extends JpaRepository<Respuesta, Long> {
 
+    @Query("SELECT r FROM Respuesta r WHERE r.simulacion.id = :simulacionId ORDER BY r.id ASC")
+    List<Respuesta> findBySimulacionIdOrdenado(Long simulacionId);
+
     List<Respuesta> findBySimulacionId(Long simulacionId);
 
     // Para obtener resultados agrupados por pregunta

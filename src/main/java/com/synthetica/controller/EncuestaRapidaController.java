@@ -12,6 +12,8 @@ import com.synthetica.service.EncuestaRapidaService;
 import com.synthetica.service.SimulacionService;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/encuesta-rapida")
 public class EncuestaRapidaController {
 
+    private static final Logger log = LoggerFactory.getLogger(EncuestaRapidaController.class);
+
     private final EncuestaRapidaService encuestaRapidaService;
     private final SimulacionService simulacionService;
     private final AnalisisService analisisService;
@@ -43,14 +47,17 @@ public class EncuestaRapidaController {
     // Lanzar encuesta rápida
     @PostMapping
     public ResponseEntity<?> iniciar(@RequestBody EncuestaRapidaRequestDTO dto) {
+        log.info("[API] POST /api/encuesta-rapida — pregunta='{}'", dto.getPregunta());
         try {
             Simulacion sim = encuestaRapidaService.iniciar(dto);
+            log.info("[API] Encuesta rápida iniciada — simulacionId={}", sim.getId());
             return ResponseEntity.ok(Map.of(
                     "simulacionId", sim.getId(),
                     "total", sim.getTotalRespuestas(),
                     "estado", sim.getEstado().name()
             ));
         } catch (Exception e) {
+            log.error("[API] Error al iniciar encuesta rápida: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
@@ -58,6 +65,7 @@ public class EncuestaRapidaController {
     // Polling de progreso
     @GetMapping("/{id}/progreso")
     public ResponseEntity<Map<String, Object>> progreso(@PathVariable Long id) {
+        log.debug("[API] GET /api/encuesta-rapida/{}/progreso", id);
         Simulacion sim = simulacionService.obtenerPorId(id);
         return ResponseEntity.ok(Map.of(
                 "id", sim.getId(),

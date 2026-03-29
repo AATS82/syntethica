@@ -1,5 +1,6 @@
 package com.synthetica.security;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,13 +41,30 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Endpoints públicos
                 .requestMatchers(
-                    "/api/encuestas-rapidas/**",
+                    "/api/encuesta-rapida/**",
                     "/api/personas/**",
                     "/oauth2/**",
                     "/login/**"
                 ).permitAll()
                 // Todo lo demás requiere autenticación
                 .anyRequest().authenticated()
+            )
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((request, response, authException) -> {
+                    // API requests get 401 instead of OAuth redirect
+                    String accept = request.getHeader("Accept");
+                    String requestedWith = request.getHeader("X-Requested-With");
+                    boolean isApiRequest = (accept != null && accept.contains("application/json"))
+                            || "XMLHttpRequest".equals(requestedWith)
+                            || request.getRequestURI().startsWith("/api/");
+                    if (isApiRequest) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        response.getWriter().write("{\"error\":\"Unauthorized\"}");
+                    } else {
+                        response.sendRedirect("/oauth2/authorization/google");
+                    }
+                })
             )
             .oauth2Login(oauth2 -> oauth2
                 .successHandler(oAuth2SuccessHandler)
