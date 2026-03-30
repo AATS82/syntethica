@@ -4,7 +4,10 @@
       "Bash(git config:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(find D:/Proyectos/synthetica-backend/syntethic_front -name planes*)",
+      "Read(//d/Proyectos/**)",
+      "Bash(find /d/Proyectos -name planes* -not -path */node_modules/*)"
     ]
   }
 }
