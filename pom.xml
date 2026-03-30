@@ -79,11 +79,11 @@
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
         </dependency>
 
-        <!-- MercadoPago SDK -->
+        <!-- Transbank SDK -->
         <dependency>
-            <groupId>com.mercadopago</groupId>
-            <artifactId>sdk-java</artifactId>
-            <version>2.1.7</version>
+            <groupId>com.github.transbankdevelopers</groupId>
+            <artifactId>transbank-sdk-java</artifactId>
+            <version>3.0.1</version>
         </dependency>
 
         <!-- JWT -->

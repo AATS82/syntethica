@@ -50,8 +50,8 @@ public class PagoService {
     }
 
     public static final Map<String, PlanInfo> PLANES = Map.of(
-        "STARTER", new PlanInfo("Plan Starter - Synthetica", new BigDecimal("12.00"), 500, Usuario.Plan.STARTER),
-        "PRO",     new PlanInfo("Plan Pro - Synthetica",     new BigDecimal("39.00"), 2000, Usuario.Plan.PRO)
+        "STARTER", new PlanInfo("Plan Starter - Synthetica", new BigDecimal("11000"), 500, Usuario.Plan.STARTER),
+        "PRO",     new PlanInfo("Plan Pro - Synthetica",     new BigDecimal("36000"), 2000, Usuario.Plan.PRO)
     );
 
     private final UsuarioRepository usuarioRepository;
@@ -90,7 +90,7 @@ public class PagoService {
                 .title(config.getTitulo())
                 .quantity(1)
                 .unitPrice(config.getPrecio())
-                .currencyId("USD")
+                .currencyId("CLP")
                 .build();
 
             PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()

@@ -77,8 +77,10 @@ public class PagoController {
     public ResponseEntity<Void> webhook(
             @RequestBody(required = false) Map<String, Object> body,
             @RequestParam(required = false) String id,
+            @RequestParam(name = "data.id", required = false) String dataId,
             @RequestParam(required = false) String topic) {
-        pagoService.procesarWebhook(body, id, topic);
+        String resolvedId = (id != null) ? id : dataId;
+        pagoService.procesarWebhook(body, resolvedId, topic);
         return ResponseEntity.ok().build();
     }
 
