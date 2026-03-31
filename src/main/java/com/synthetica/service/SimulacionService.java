@@ -3,6 +3,7 @@ package com.synthetica.service;
 import com.synthetica.model.*;
 import com.synthetica.model.enums.EstadoSimulacion;
 import com.synthetica.model.enums.TipoPregunta;
+import com.synthetica.repository.EncuestaRepository;
 import com.synthetica.repository.RespuestaRepository;
 import com.synthetica.repository.SimulacionRepository;
 import org.slf4j.Logger;
@@ -17,7 +18,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class SimulacionService {
@@ -27,16 +31,37 @@ public class SimulacionService {
     private final SimulacionRepository simulacionRepository;
     private final RespuestaRepository respuestaRepository;
     private final EncuestaService encuestaService;
+    private final EncuestaRepository encuestaRepository;
     private final PersonaService personaService;
     private final ClaudeService claudeService;
 
     public SimulacionService(SimulacionRepository simulacionRepository, RespuestaRepository respuestaRepository,
-            EncuestaService encuestaService, PersonaService personaService, ClaudeService claudeService) {
+            EncuestaService encuestaService, EncuestaRepository encuestaRepository,
+            PersonaService personaService, ClaudeService claudeService) {
         this.simulacionRepository = simulacionRepository;
         this.respuestaRepository = respuestaRepository;
         this.encuestaService = encuestaService;
+        this.encuestaRepository = encuestaRepository;
         this.personaService = personaService;
         this.claudeService = claudeService;
+    }
+
+    public void verificarOwnershipEncuesta(Long encuestaId, Long usuarioId) {
+        Encuesta encuesta = encuestaRepository.findById(encuestaId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Encuesta no encontrada"));
+        if (encuesta.getUsuario() == null || !encuesta.getUsuario().getId().equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes acceso a esta encuesta");
+        }
+    }
+
+    public void verificarOwnershipSimulacion(Long simulacionId, Long usuarioId) {
+        Simulacion sim = simulacionRepository.findById(simulacionId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulación no encontrada"));
+        Encuesta encuesta = sim.getEncuesta();
+        if (encuesta == null || encuesta.getUsuario() == null
+                || !encuesta.getUsuario().getId().equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes acceso a esta simulación");
+        }
     }
 
     // ── Crear simulación y lanzarla de forma asíncrona ────────────────────────
@@ -72,69 +97,73 @@ public class SimulacionService {
         simulacion.setEstado(EstadoSimulacion.CORRIENDO);
         simulacionRepository.save(simulacion);
 
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        try {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-        for (Persona persona : personas) {
-            for (Pregunta pregunta : encuesta.getPreguntas()) {
+            for (Persona persona : personas) {
+                for (Pregunta pregunta : encuesta.getPreguntas()) {
 
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                    try {
-                        String respuestaTexto = claudeService.responderPregunta(
-                                persona, pregunta, encuesta.getContexto()
-                        );
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            String respuestaTexto = claudeService.responderPregunta(
+                                    persona, pregunta, encuesta.getContexto()
+                            );
 
-                        Respuesta respuesta = new Respuesta();
-                        respuesta.setSimulacion(simulacion);
-                        respuesta.setPersona(persona);
-                        respuesta.setPregunta(pregunta);
+                            Respuesta respuesta = new Respuesta();
+                            respuesta.setSimulacion(simulacion);
+                            respuesta.setPersona(persona);
+                            respuesta.setPregunta(pregunta);
 
-                        // Parsear Likert si corresponde
-                        if (pregunta.getTipo() == TipoPregunta.LIKERT) {
-                            Integer valor = parsearValorLikert(respuestaTexto);
-                            respuesta.setValorLikert(valor);
-                            respuesta.setRespuestaTexto(respuestaTexto);
-                        } else {
-                            respuesta.setRespuestaTexto(respuestaTexto);
+                            if (pregunta.getTipo() == TipoPregunta.LIKERT) {
+                                Integer valor = parsearValorLikert(respuestaTexto);
+                                respuesta.setValorLikert(valor);
+                                respuesta.setRespuestaTexto(respuestaTexto);
+                            } else {
+                                respuesta.setRespuestaTexto(respuestaTexto);
+                            }
+
+                            guardarRespuestaYAvanzar(simulacionId, respuesta);
+
+                        } catch (Exception e) {
+                            log.error("Error al obtener respuesta de Claude para persona {} pregunta {}: {}",
+                                    persona.getId(), pregunta.getId(), e.getMessage());
+                            Respuesta respuestaError = new Respuesta();
+                            respuestaError.setSimulacion(simulacion);
+                            respuestaError.setPersona(persona);
+                            respuestaError.setPregunta(pregunta);
+                            respuestaError.setRespuestaTexto("[Error al obtener respuesta]");
+                            guardarRespuestaYAvanzar(simulacionId, respuestaError);
                         }
+                    });
 
-                        guardarRespuestaYAvanzar(simulacionId, respuesta);
-
-                    } catch (Exception e) {
-                        log.error("Error al obtener respuesta de Claude para persona {} pregunta {}: {}",
-                                persona.getId(), pregunta.getId(), e.getMessage());
-                        // Guardar respuesta de error para no bloquear el progreso
-                        Respuesta respuestaError = new Respuesta();
-                        respuestaError.setSimulacion(simulacion);
-                        respuestaError.setPersona(persona);
-                        respuestaError.setPregunta(pregunta);
-                        respuestaError.setRespuestaTexto("[Error al obtener respuesta]");
-                        guardarRespuestaYAvanzar(simulacionId, respuestaError);
-                    }
-                });
-
-                futures.add(future);
+                    futures.add(future);
+                }
             }
+
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .get(10, TimeUnit.MINUTES);
+
+            Simulacion finalizada = simulacionRepository.findById(simulacionId).orElseThrow();
+            finalizada.setEstado(EstadoSimulacion.COMPLETA);
+            finalizada.setFinalizadoEn(LocalDateTime.now());
+            simulacionRepository.save(finalizada);
+
+            log.info("Simulacion {} completada. Total respuestas: {}", simulacionId, finalizada.getRespuestasCompletadas());
+
+        } catch (Exception e) {
+            log.error("Simulacion {} falló: {}", simulacionId, e.getMessage());
+            Simulacion fallida = simulacionRepository.findById(simulacionId).orElseThrow();
+            fallida.setEstado(EstadoSimulacion.ERROR);
+            fallida.setFinalizadoEn(LocalDateTime.now());
+            simulacionRepository.save(fallida);
         }
-
-        // Esperar que todas las llamadas terminen
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
-        // Marcar como completa
-        Simulacion finalizada = simulacionRepository.findById(simulacionId).orElseThrow();
-        finalizada.setEstado(EstadoSimulacion.COMPLETA);
-        finalizada.setFinalizadoEn(LocalDateTime.now());
-        simulacionRepository.save(finalizada);
-
-        log.info("Simulacion {} completada. Total respuestas: {}", simulacionId, finalizada.getRespuestasCompletadas());
     }
 
-    // ── Guardar respuesta e incrementar contador (sincronizado) ───────────────
+    // ── Guardar respuesta e incrementar contador atómico ─────────────────────
     @Transactional
-    synchronized void guardarRespuestaYAvanzar(Long simulacionId, Respuesta respuesta) {
+    void guardarRespuestaYAvanzar(Long simulacionId, Respuesta respuesta) {
         respuestaRepository.save(respuesta);
-        Simulacion sim = simulacionRepository.findById(simulacionId).orElseThrow();
-        sim.setRespuestasCompletadas(sim.getRespuestasCompletadas() + 1);
-        simulacionRepository.save(sim);
+        simulacionRepository.incrementarRespuestas(simulacionId);
     }
 
     // ── Consultar progreso ─────────────────────────────────────────────────────
@@ -169,6 +198,22 @@ public class SimulacionService {
 
     public List<Map<String, Object>> listarRecientes() {
         return simulacionRepository.findTop10ByOrderByCreadoEnDesc()
+                .stream()
+                .map(s -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", s.getId());
+                    m.put("pregunta", s.getEncuesta().getTitulo());
+                    m.put("total", s.getTotalRespuestas());
+                    m.put("estado", s.getEstado().name());
+                    m.put("fecha", s.getCreadoEn() != null
+                            ? s.getCreadoEn().toLocalDate().toString() : "");
+                    return m;
+                })
+                .toList();
+    }
+
+    public List<Map<String, Object>> listarRecientesPorUsuario(Long usuarioId) {
+        return simulacionRepository.findTop10ByEncuestaUsuarioIdOrderByCreadoEnDesc(usuarioId)
                 .stream()
                 .map(s -> {
                     Map<String, Object> m = new LinkedHashMap<>();

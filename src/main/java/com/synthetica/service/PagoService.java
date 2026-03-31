@@ -14,8 +14,10 @@ import com.synthetica.repository.UsuarioRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -116,12 +118,14 @@ public class PagoService {
         }
     }
 
+    @Transactional
     public String confirmarTransaccion(String token) {
         if (token == null) {
             log.info("token_ws nulo: pago cancelado o con timeout");
             return frontendUrl + "/pagos/error?motivo=cancelado";
         }
 
+        // Idempotencia: si ya fue procesado, redirigir a éxito sin re-procesar
         if (suscripcionRepository.existsByTbkToken(token)) {
             log.info("Token {} ya procesado, redirigiendo a éxito", token);
             return frontendUrl + "/pagos/exito";
@@ -138,16 +142,28 @@ public class PagoService {
             // buyOrder formato: "userId-PLAN-timestamp"
             String buyOrder = response.getBuyOrder();
             String[] partes = buyOrder.split("-", 3);
-            Long usuarioId = Long.parseLong(partes[0]);
-            String planNombre = partes[1];
+            if (partes.length < 2) {
+                log.error("buyOrder con formato inválido: {}", buyOrder);
+                return frontendUrl + "/pagos/error";
+            }
 
+            Long usuarioId;
+            try {
+                usuarioId = Long.parseLong(partes[0]);
+            } catch (NumberFormatException e) {
+                log.error("usuarioId inválido en buyOrder {}: {}", buyOrder, partes[0]);
+                return frontendUrl + "/pagos/error";
+            }
+
+            String planNombre = partes[1];
             PlanInfo config = PLANES.get(planNombre);
             if (config == null) {
                 log.warn("Plan desconocido en buyOrder {}", buyOrder);
                 return frontendUrl + "/pagos/error";
             }
 
-            Usuario usuario = usuarioRepository.findById(usuarioId).orElse(null);
+            // Lock pesimista para evitar doble crédito si Transbank reintenta
+            Usuario usuario = usuarioRepository.findByIdForUpdate(usuarioId).orElse(null);
             if (usuario == null) {
                 log.warn("Usuario {} no encontrado para token {}", usuarioId, token);
                 return frontendUrl + "/pagos/error";
@@ -171,6 +187,10 @@ public class PagoService {
 
             return frontendUrl + "/pagos/exito";
 
+        } catch (DataIntegrityViolationException e) {
+            // Unique constraint en tbk_token: otro hilo ya procesó este token
+            log.warn("Token {} ya procesado por otro hilo (constraint violation)", token);
+            return frontendUrl + "/pagos/exito";
         } catch (Exception e) {
             log.error("Error al confirmar transacción Transbank {}: {}", token, e.getMessage());
             return frontendUrl + "/pagos/error";

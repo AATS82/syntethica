@@ -4,8 +4,11 @@ import com.synthetica.dto.SimulacionRequestDTO;
 import com.synthetica.model.Respuesta;
 import com.synthetica.model.Simulacion;
 import com.synthetica.service.SimulacionService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -15,19 +18,20 @@ import java.util.Map;
 public class SimulacionController {
 
     private final SimulacionService simulacionService;
-    
+
     public SimulacionController(SimulacionService simulacionService) {
-    this.simulacionService = simulacionService;
-}
-    // Listar simulaciones de una encuesta
+        this.simulacionService = simulacionService;
+    }
+
     @GetMapping("/encuesta/{encuestaId}")
-    public List<Simulacion> listarPorEncuesta(@PathVariable Long encuestaId) {
+    public List<Simulacion> listarPorEncuesta(@PathVariable Long encuestaId, Authentication auth) {
+        simulacionService.verificarOwnershipEncuesta(encuestaId, getUserId(auth));
         return simulacionService.listarPorEncuesta(encuestaId);
     }
 
-    // Iniciar nueva simulación
     @PostMapping
-    public ResponseEntity<?> iniciar(@RequestBody SimulacionRequestDTO dto) {
+    public ResponseEntity<?> iniciar(@RequestBody SimulacionRequestDTO dto, Authentication auth) {
+        simulacionService.verificarOwnershipEncuesta(dto.getEncuestaId(), getUserId(auth));
         try {
             Simulacion simulacion = simulacionService.iniciar(dto.getEncuestaId(), dto.getPersonaIds());
             return ResponseEntity.ok(simulacion);
@@ -36,9 +40,9 @@ public class SimulacionController {
         }
     }
 
-    // Polling de progreso — Angular llama esto cada 2s
     @GetMapping("/{id}/progreso")
-    public ResponseEntity<Map<String, Object>> progreso(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> progreso(@PathVariable Long id, Authentication auth) {
+        simulacionService.verificarOwnershipSimulacion(id, getUserId(auth));
         Simulacion sim = simulacionService.obtenerPorId(id);
         return ResponseEntity.ok(Map.of(
             "id",                    sim.getId(),
@@ -49,9 +53,16 @@ public class SimulacionController {
         ));
     }
 
-    // Resultados completos agrupados por pregunta
     @GetMapping("/{id}/resultados")
-    public ResponseEntity<Map<Long, List<Respuesta>>> resultados(@PathVariable Long id) {
+    public ResponseEntity<Map<Long, List<Respuesta>>> resultados(@PathVariable Long id, Authentication auth) {
+        simulacionService.verificarOwnershipSimulacion(id, getUserId(auth));
         return ResponseEntity.ok(simulacionService.obtenerResultados(id));
+    }
+
+    private Long getUserId(Authentication auth) {
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No autenticado");
+        }
+        return (Long) auth.getDetails();
     }
 }

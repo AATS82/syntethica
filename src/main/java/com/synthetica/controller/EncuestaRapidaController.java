@@ -15,6 +15,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,10 +47,14 @@ public class EncuestaRapidaController {
 
     // Lanzar encuesta rápida
     @PostMapping
-    public ResponseEntity<?> iniciar(@RequestBody EncuestaRapidaRequestDTO dto) {
+    public ResponseEntity<?> iniciar(@RequestBody EncuestaRapidaRequestDTO dto, Authentication auth) {
         log.info("[API] POST /api/encuesta-rapida — pregunta='{}'", dto.getPregunta());
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(401).body(Map.of("error", "No autenticado"));
+        }
+        Long usuarioId = (Long) auth.getDetails();
         try {
-            Simulacion sim = encuestaRapidaService.iniciar(dto);
+            Simulacion sim = encuestaRapidaService.iniciar(dto, usuarioId);
             log.info("[API] Encuesta rápida iniciada — simulacionId={}", sim.getId());
             return ResponseEntity.ok(Map.of(
                     "simulacionId", sim.getId(),
@@ -92,8 +97,12 @@ public class EncuestaRapidaController {
     }
 
     @GetMapping("/recientes")
-    public ResponseEntity<List<Map<String, Object>>> recientes() {
-        List<Map<String, Object>> result = simulacionService.listarRecientes();
+    public ResponseEntity<List<Map<String, Object>>> recientes(Authentication auth) {
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(401).build();
+        }
+        Long usuarioId = (Long) auth.getDetails();
+        List<Map<String, Object>> result = simulacionService.listarRecientesPorUsuario(usuarioId);
         return ResponseEntity.ok(result);
     }
 }

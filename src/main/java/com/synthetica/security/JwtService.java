@@ -65,6 +65,10 @@ public class JwtService {
         }
     }
 
+    public long extractExpirationMs(String token) {
+        return extractAllClaims(token).getExpiration().getTime();
+    }
+
     private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(getSigningKey())

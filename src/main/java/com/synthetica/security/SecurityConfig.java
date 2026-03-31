@@ -41,10 +41,13 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Endpoints públicos
                 .requestMatchers(
-                    "/api/encuesta-rapida/**",
-                    "/api/personas/**",
+                    "/api/encuesta-rapida/*/progreso",
+                    "/api/encuesta-rapida/*/resultados",
+                    "/api/personas",
+                    "/api/personas/*",
                     "/api/pagos/confirmar",
                     "/api/pagos/planes",
+                    "/api/auth/logout",
                     "/oauth2/**",
                     "/login/**"
                 ).permitAll()
@@ -85,7 +88,7 @@ public class SecurityConfig {
             frontendUrl
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

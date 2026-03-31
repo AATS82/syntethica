@@ -2,7 +2,9 @@ package com.synthetica.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.synthetica.model.Respuesta;
+import com.synthetica.model.Simulacion;
 import com.synthetica.repository.RespuestaRepository;
+import com.synthetica.repository.SimulacionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,16 +22,27 @@ public class AnalisisService {
 
     private final RespuestaRepository respuestaRepository;
     private final ClaudeService claudeService;
+    private final SimulacionRepository simulacionRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public AnalisisService(RespuestaRepository respuestaRepository, ClaudeService claudeService) {
+    public AnalisisService(RespuestaRepository respuestaRepository, ClaudeService claudeService,
+            SimulacionRepository simulacionRepository) {
         this.respuestaRepository = respuestaRepository;
         this.claudeService = claudeService;
+        this.simulacionRepository = simulacionRepository;
     }
 
     @Transactional
     public Map<String, Object> analizar(Long simulacionId) throws Exception {
         log.info("[ANALISIS] Iniciando análisis para simulacionId={}", simulacionId);
+
+        // Retornar análisis cacheado si ya existe
+        Simulacion simulacion = simulacionRepository.findById(simulacionId)
+                .orElseThrow(() -> new RuntimeException("Simulación no encontrada: " + simulacionId));
+        if (simulacion.getAnalisisJson() != null) {
+            log.info("[ANALISIS] Retornando análisis cacheado para simulacionId={}", simulacionId);
+            return mapper.readValue(simulacion.getAnalisisJson(), Map.class);
+        }
 
         List<Respuesta> respuestas = respuestaRepository.findBySimulacionIdOrdenado(simulacionId);
 
@@ -96,6 +109,12 @@ public class AnalisisService {
         }).toList());
 
         log.info("[ANALISIS] Análisis completado para simulacionId={}", simulacionId);
+
+        // Persistir para no volver a generarlo
+        simulacion.setAnalisisJson(mapper.writeValueAsString(resultado));
+        simulacionRepository.save(simulacion);
+        log.info("[ANALISIS] Análisis guardado en BD para simulacionId={}", simulacionId);
+
         return resultado;
     }
 
@@ -355,20 +374,18 @@ public class AnalisisService {
 
         int total = validas.size();
 
-        // Agrupar respuestas por cada dimensión con hasta 4 ejemplos por grupo
-        String bloqueNSE    = construirBloqueGrupo("NSE",        validas, r -> r.getNseEfectivo(),        porNSE,       total, 4);
-        String bloqueSexo   = construirBloqueGrupo("Sexo",       validas, r -> r.getSexoEfectivo(),       porSexo,      total, 4);
-        String bloqueEdad   = construirBloqueGrupoEdad(validas, porEdad, total, 4);
-        String bloqueEduc   = construirBloqueGrupo("Educación",  validas, r -> r.getEducacionEfectiva(),  porEducacion, total, 3);
+        // Construir bloques de texto con ejemplos por grupo para que Claude genere opinions
+        String bloqueNSE  = construirBloqueGrupo("NSE",       validas, r -> r.getNseEfectivo(),       porNSE,       total, 4);
+        String bloqueSexo = construirBloqueGrupo("Sexo",      validas, r -> r.getSexoEfectivo(),      porSexo,      total, 4);
+        String bloqueEdad = construirBloqueGrupoEdad(validas, porEdad, total, 4);
+        String bloqueEduc = construirBloqueGrupo("Educación", validas, r -> r.getEducacionEfectiva(), porEducacion, total, 3);
 
+        // Claude solo genera opinions — los conteos los calculamos nosotros
         String prompt = """
                 Tienes respuestas a esta pregunta de encuesta: "%s"
 
                 Para cada grupo demográfico, escribe UNA frase corta y directa que resuma qué piensa ese grupo.
-                La frase debe:
-                - Decir algo concreto sobre su opinión (no solo "tienen opiniones variadas")
-                - Usar lenguaje simple, sin jerga
-                - Mencionar si hay algo llamativo o diferente en ese grupo
+                La frase debe ser concreta (no "tienen opiniones variadas"), en lenguaje simple, sin jerga.
 
                 %s
 
@@ -380,32 +397,61 @@ public class AnalisisService {
 
                 Responde SOLO con JSON sin markdown. El formato exacto es:
                 {
-                  "porNSE":       [{"grupo":"...","cantidad":N,"porcentaje":N,"opinion":"..."}],
-                  "porSexo":      [{"grupo":"...","cantidad":N,"porcentaje":N,"opinion":"..."}],
-                  "porEdad":      [{"grupo":"...","cantidad":N,"porcentaje":N,"opinion":"..."}],
-                  "porEducacion": [{"grupo":"...","cantidad":N,"porcentaje":N,"opinion":"..."}]
+                  "porNSE":       {"GrupoA": "opinion...", "GrupoB": "opinion..."},
+                  "porSexo":      {"Masculino": "opinion...", "Femenino": "opinion..."},
+                  "porEdad":      {"18-24": "opinion...", "25-34": "opinion..."},
+                  "porEducacion": {"GrupoA": "opinion...", "GrupoB": "opinion..."}
                 }
                 """.formatted(pregunta, bloqueNSE, bloqueSexo, bloqueEdad, bloqueEduc);
+
+        Map<String, String> opinionsNSE = Map.of();
+        Map<String, String> opinionsSexo = Map.of();
+        Map<String, String> opinionsEdad = Map.of();
+        Map<String, String> opinionsEduc = Map.of();
 
         try {
             String raw = claudeService.llamarClaude(prompt).replaceAll("```json|```", "").trim();
             Map<String, Object> parsed = mapper.readValue(raw, Map.class);
-
-            // Si Claude devuelve algo incompleto, rellenamos con la distribución básica
-            Map<String, Object> resultado = new LinkedHashMap<>();
-            resultado.put("porNSE",       parsed.getOrDefault("porNSE",       distribucionBasica(porNSE,      total)));
-            resultado.put("porSexo",      parsed.getOrDefault("porSexo",      distribucionBasica(porSexo,     total)));
-            resultado.put("porEdad",      parsed.getOrDefault("porEdad",      distribucionBasica(porEdad,     total)));
-            resultado.put("porEducacion", parsed.getOrDefault("porEducacion", distribucionBasica(porEducacion, total)));
-            return resultado;
+            opinionsNSE  = toStringMap(parsed.get("porNSE"));
+            opinionsSexo = toStringMap(parsed.get("porSexo"));
+            opinionsEdad = toStringMap(parsed.get("porEdad"));
+            opinionsEduc = toStringMap(parsed.get("porEducacion"));
         } catch (Exception e) {
-            log.warn("[ANALISIS] No se pudo generar insights demográficos: {}", e.getMessage());
-            return Map.of(
-                    "porNSE",       distribucionBasica(porNSE,       total),
-                    "porSexo",      distribucionBasica(porSexo,      total),
-                    "porEdad",      distribucionBasica(porEdad,      total),
-                    "porEducacion", distribucionBasica(porEducacion, total));
+            log.warn("[ANALISIS] No se pudo generar opinions demográficas: {}", e.getMessage());
         }
+
+        // Fusionar conteos locales (correctos) con opinions de Claude
+        Map<String, Object> resultado = new LinkedHashMap<>();
+        resultado.put("porNSE",       fusionarConOpinion(porNSE,       total, opinionsNSE));
+        resultado.put("porSexo",      fusionarConOpinion(porSexo,      total, opinionsSexo));
+        resultado.put("porEdad",      fusionarConOpinion(porEdad,      total, opinionsEdad));
+        resultado.put("porEducacion", fusionarConOpinion(porEducacion, total, opinionsEduc));
+        return resultado;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> toStringMap(Object obj) {
+        if (obj instanceof Map) {
+            Map<String, String> result = new LinkedHashMap<>();
+            ((Map<?, ?>) obj).forEach((k, v) -> result.put(String.valueOf(k), String.valueOf(v)));
+            return result;
+        }
+        return Map.of();
+    }
+
+    private List<Map<String, Object>> fusionarConOpinion(Map<String, Integer> dist, int total,
+            Map<String, String> opinions) {
+        return dist.entrySet().stream()
+                .filter(e -> e.getValue() > 0)
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("grupo", e.getKey());
+                    m.put("cantidad", e.getValue());
+                    m.put("porcentaje", Math.round(100.0f * e.getValue() / total));
+                    m.put("opinion", opinions.getOrDefault(e.getKey(), ""));
+                    return m;
+                })
+                .toList();
     }
 
     /** Arma el bloque de texto para una dimensión, con ejemplos de respuestas por grupo. */
@@ -460,19 +506,6 @@ public class AnalisisService {
         return sb.toString();
     }
 
-    /** Fallback: si Claude falla, devuelve la distribución sin insights. */
-    private List<Map<String, Object>> distribucionBasica(Map<String, Integer> dist, int total) {
-        return dist.entrySet().stream()
-                .map(e -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("grupo", e.getKey());
-                    m.put("cantidad", e.getValue());
-                    m.put("porcentaje", Math.round(100.0f * e.getValue() / total));
-                    m.put("opinion", "");
-                    return m;
-                })
-                .toList();
-    }
 
     // ── Análisis temático + consenso (1 llamada Claude) ───────────────────────
 

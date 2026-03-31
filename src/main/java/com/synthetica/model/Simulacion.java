@@ -41,6 +41,9 @@ public class Simulacion {
     @JsonIgnore
     private List<Respuesta> respuestas = new ArrayList<>();
 
+    @Column(columnDefinition = "TEXT")
+    private String analisisJson;
+
     // ── Helper para calcular % de progreso ────────────────────────────────────
     @Transient
     public int getPorcentajeProgreso() {
@@ -115,6 +118,14 @@ public class Simulacion {
 
     public void setRespuestas(List<Respuesta> respuestas) {
         this.respuestas = respuestas;
+    }
+
+    public String getAnalisisJson() {
+        return analisisJson;
+    }
+
+    public void setAnalisisJson(String analisisJson) {
+        this.analisisJson = analisisJson;
     }
 
 }

@@ -18,7 +18,8 @@
       "Read(//opt/maven/**)",
       "Read(//c/Users/Pilsen/.sdkman/candidates/maven/current/**)",
       "Bash(find /c /d -name mvn -type f)",
-      "Bash(\"/c/Users/Pilsen/.m2/wrapper/dists/apache-maven-3.9.12/59fe215c0ad6947fea90184bf7add084544567b927287592651fda3782e0e798/bin/mvn\" compile:*)"
+      "Bash(\"/c/Users/Pilsen/.m2/wrapper/dists/apache-maven-3.9.12/59fe215c0ad6947fea90184bf7add084544567b927287592651fda3782e0e798/bin/mvn\" compile:*)",
+      "Bash(grep -r \"creditosUsados\\\\|creditosDisponibles\\\\|deducir\\\\|restar\\\\|subtract\" C:UsersTotoralilloDocumentsNetBeansProjectssyntethica --include=*.java)"
     ]
   }
 }

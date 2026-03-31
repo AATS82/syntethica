@@ -31,7 +31,7 @@ public class AppConfig implements WebMvcConfigurer, AsyncConfigurer {
                     "https://*.vercel.app"     // Vercel deploy
                 )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("*")
+                .allowedHeaders("Authorization", "Content-Type", "X-Requested-With")
                 .allowCredentials(false);
     }
 
