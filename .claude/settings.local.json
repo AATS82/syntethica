@@ -8,7 +8,17 @@
       "Bash(find D:/Proyectos/synthetica-backend/syntethic_front -name planes*)",
       "Read(//d/Proyectos/**)",
       "Bash(find /d/Proyectos -name planes* -not -path */node_modules/*)",
-      "Bash(find C:UsersTotoralilloDocumentsNetBeansProjectssyntethica -type f \\\\\\(-name package.json -o -name *.ts -o -name *.tsx -o -name *.jsx \\\\\\))"
+      "Bash(find C:UsersTotoralilloDocumentsNetBeansProjectssyntethica -type f \\\\\\(-name package.json -o -name *.ts -o -name *.tsx -o -name *.jsx \\\\\\))",
+      "Bash(find /d/Proyectos/synthetica-backend/target -name *mercado*)",
+      "Bash(grep -r \"mercadopago\\\\|MercadoPago\" /d/Proyectos/synthetica-backend --include=*.java --include=*.xml --include=*.properties)",
+      "Bash(find /d/Proyectos/synthetica-backend/src/main/java -type f -name \"*.java\" -exec wc -l {} +)",
+      "Bash(mvn compile:*)",
+      "Bash(./mvnw compile:*)",
+      "Read(//usr/share/maven/**)",
+      "Read(//opt/maven/**)",
+      "Read(//c/Users/Pilsen/.sdkman/candidates/maven/current/**)",
+      "Bash(find /c /d -name mvn -type f)",
+      "Bash(\"/c/Users/Pilsen/.m2/wrapper/dists/apache-maven-3.9.12/59fe215c0ad6947fea90184bf7add084544567b927287592651fda3782e0e798/bin/mvn\" compile:*)"
     ]
   }
 }

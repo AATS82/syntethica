@@ -3,16 +3,18 @@ package com.synthetica.controller;
 import com.synthetica.model.Suscripcion;
 import com.synthetica.repository.SuscripcionRepository;
 import com.synthetica.service.PagoService;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -24,19 +26,10 @@ public class PagoController {
     private final PagoService pagoService;
     private final SuscripcionRepository suscripcionRepository;
 
-    @Value("${mp.public-key}")
-    private String mpPublicKey;
-
     public PagoController(PagoService pagoService,
                           SuscripcionRepository suscripcionRepository) {
         this.pagoService = pagoService;
         this.suscripcionRepository = suscripcionRepository;
-    }
-
-    // Configuración pública de MP para el frontend
-    @GetMapping("/config")
-    public ResponseEntity<?> config() {
-        return ResponseEntity.ok(Map.of("publicKey", mpPublicKey));
     }
 
     // Planes disponibles (público, para mostrar en la landing)
@@ -53,10 +46,10 @@ public class PagoController {
         return ResponseEntity.ok(planes);
     }
 
-    // Crea la preferencia y devuelve la URL de pago
-    @PostMapping("/crear-preferencia")
-    public ResponseEntity<?> crearPreferencia(@RequestBody Map<String, String> body,
-                                               Authentication auth) {
+    // Inicia una transacción Transbank y devuelve token + URL de pago
+    @PostMapping("/iniciar")
+    public ResponseEntity<?> iniciarPago(@RequestBody Map<String, String> body,
+                                          Authentication auth) {
         if (auth == null || !auth.isAuthenticated()) {
             return ResponseEntity.status(401).body(Map.of("error", "No autenticado"));
         }
@@ -67,21 +60,21 @@ public class PagoController {
         }
 
         Long usuarioId = (Long) auth.getDetails();
-        String checkoutUrl = pagoService.crearPreferencia(usuarioId, plan);
+        Map<String, String> result = pagoService.iniciarTransaccion(usuarioId, plan);
 
-        return ResponseEntity.ok(Map.of("checkoutUrl", checkoutUrl));
+        return ResponseEntity.ok(result);
     }
 
-    // Webhook de MercadoPago (debe ser público)
-    @PostMapping("/webhook")
-    public ResponseEntity<Void> webhook(
-            @RequestBody(required = false) Map<String, Object> body,
-            @RequestParam(required = false) String id,
-            @RequestParam(name = "data.id", required = false) String dataId,
-            @RequestParam(required = false) String topic) {
-        String resolvedId = (id != null) ? id : dataId;
-        pagoService.procesarWebhook(body, resolvedId, topic);
-        return ResponseEntity.ok().build();
+    // Transbank redirige aquí (POST o GET) con token_ws tras el pago, o TBK_TOKEN si fue cancelado
+    @RequestMapping(value = "/confirmar", method = { RequestMethod.POST, RequestMethod.GET })
+    public ResponseEntity<Void> confirmarPago(
+            @RequestParam(name = "token_ws", required = false) String token,
+            @RequestParam(name = "TBK_TOKEN", required = false) String tbkCancelToken) {
+        // Si solo está TBK_TOKEN (sin token_ws), el usuario canceló el pago
+        String redirectUrl = pagoService.confirmarTransaccion(token);
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .location(URI.create(redirectUrl))
+            .build();
     }
 
     // Historial de pagos del usuario autenticado

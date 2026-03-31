@@ -25,9 +25,7 @@ public class Suscripcion {
     private Usuario usuario;
 
     @Column(unique = true)
-    private String mpPaymentId;
-
-    private String mpPreferenceId;
+    private String tbkToken;
 
     @Column(nullable = false)
     private String plan;
@@ -50,11 +48,8 @@ public class Suscripcion {
     public Usuario getUsuario() { return usuario; }
     public void setUsuario(Usuario usuario) { this.usuario = usuario; }
 
-    public String getMpPaymentId() { return mpPaymentId; }
-    public void setMpPaymentId(String mpPaymentId) { this.mpPaymentId = mpPaymentId; }
-
-    public String getMpPreferenceId() { return mpPreferenceId; }
-    public void setMpPreferenceId(String mpPreferenceId) { this.mpPreferenceId = mpPreferenceId; }
+    public String getTbkToken() { return tbkToken; }
+    public void setTbkToken(String tbkToken) { this.tbkToken = tbkToken; }
 
     public String getPlan() { return plan; }
     public void setPlan(String plan) { this.plan = plan; }

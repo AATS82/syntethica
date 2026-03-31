@@ -43,9 +43,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/encuesta-rapida/**",
                     "/api/personas/**",
-                    "/api/pagos/webhook",
+                    "/api/pagos/confirmar",
                     "/api/pagos/planes",
-                    "/api/pagos/config",
                     "/oauth2/**",
                     "/login/**"
                 ).permitAll()

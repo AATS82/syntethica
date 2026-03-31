@@ -1,15 +1,12 @@
 package com.synthetica.service;
 
-import com.mercadopago.MercadoPagoConfig;
-import com.mercadopago.client.payment.PaymentClient;
-import com.mercadopago.client.preference.PreferenceBackUrlsRequest;
-import com.mercadopago.client.preference.PreferenceClient;
-import com.mercadopago.client.preference.PreferenceItemRequest;
-import com.mercadopago.client.preference.PreferenceRequest;
-import com.mercadopago.exceptions.MPApiException;
-import com.mercadopago.exceptions.MPException;
-import com.mercadopago.resources.payment.Payment;
-import com.mercadopago.resources.preference.Preference;
+import cl.transbank.common.IntegrationApiKeys;
+import cl.transbank.common.IntegrationCommerceCodes;
+import cl.transbank.common.IntegrationType;
+import cl.transbank.webpay.common.WebpayOptions;
+import cl.transbank.webpay.webpayplus.WebpayPlus;
+import cl.transbank.webpay.webpayplus.responses.WebpayPlusTransactionCommitResponse;
+import cl.transbank.webpay.webpayplus.responses.WebpayPlusTransactionCreateResponse;
 import com.synthetica.model.Suscripcion;
 import com.synthetica.model.Usuario;
 import com.synthetica.repository.SuscripcionRepository;
@@ -22,8 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class PagoService {
@@ -57,17 +54,20 @@ public class PagoService {
     private final UsuarioRepository usuarioRepository;
     private final SuscripcionRepository suscripcionRepository;
 
-    @Value("${mp.access-token}")
-    private String mpAccessToken;
+    @Value("${transbank.commerce-code:#{null}}")
+    private String commerceCode;
 
-    @Value("${mp.sandbox:true}")
-    private boolean sandbox;
+    @Value("${transbank.api-key:#{null}}")
+    private String apiKey;
 
-    @Value("${app.frontend-url:http://localhost:4200}")
-    private String frontendUrl;
+    @Value("${transbank.environment:integration}")
+    private String environment;
 
     @Value("${app.backend-url:http://localhost:8080}")
     private String backendUrl;
+
+    @Value("${app.frontend-url:http://localhost:4200}")
+    private String frontendUrl;
 
     public PagoService(UsuarioRepository usuarioRepository,
                        SuscripcionRepository suscripcionRepository) {
@@ -75,92 +75,82 @@ public class PagoService {
         this.suscripcionRepository = suscripcionRepository;
     }
 
-    public String crearPreferencia(Long usuarioId, String planNombre) {
+    private WebpayPlus.Transaction buildTransaction() {
+        if ("production".equalsIgnoreCase(environment) && commerceCode != null && apiKey != null) {
+            return new WebpayPlus.Transaction(
+                new WebpayOptions(commerceCode, apiKey, IntegrationType.LIVE)
+            );
+        }
+        // Credenciales de integración (testing)
+        return new WebpayPlus.Transaction(
+            new WebpayOptions(IntegrationCommerceCodes.WEBPAY_PLUS, IntegrationApiKeys.WEBPAY, IntegrationType.TEST)
+        );
+    }
+
+    public Map<String, String> iniciarTransaccion(Long usuarioId, String planNombre) {
         PlanInfo config = PLANES.get(planNombre.toUpperCase());
         if (config == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Plan no válido. Opciones: STARTER, PRO");
         }
 
+        String buyOrder = usuarioId + "-" + planNombre.toUpperCase() + "-" + System.currentTimeMillis();
+        String sessionId = UUID.randomUUID().toString();
+        double amount = config.getPrecio().doubleValue();
+        String returnUrl = backendUrl + "/api/pagos/confirmar";
+
         try {
-            MercadoPagoConfig.setAccessToken(mpAccessToken);
+            WebpayPlusTransactionCreateResponse response = buildTransaction()
+                .create(buyOrder, sessionId, amount, returnUrl);
 
-            PreferenceItemRequest item = PreferenceItemRequest.builder()
-                .id(planNombre.toUpperCase())
-                .title(config.getTitulo())
-                .quantity(1)
-                .unitPrice(config.getPrecio())
-                .currencyId("CLP")
-                .build();
+            log.info("Transacción Transbank creada: buyOrder={}, token={}", buyOrder, response.getToken());
 
-            PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()
-                .success(frontendUrl + "/pagos/exito")
-                .failure(frontendUrl + "/pagos/error")
-                .pending(frontendUrl + "/pagos/pendiente")
-                .build();
-
-            PreferenceRequest request = PreferenceRequest.builder()
-                .items(List.of(item))
-                .backUrls(backUrls)
-                .notificationUrl(backendUrl + "/api/pagos/webhook")
-                .externalReference(usuarioId + "|" + planNombre.toUpperCase())
-                .build();
-
-            Preference preference = new PreferenceClient().create(request);
-
-            return sandbox ? preference.getSandboxInitPoint() : preference.getInitPoint();
-
-        } catch (MPApiException e) {
-            log.error("MercadoPago API error - status: {}, body: {}",
-                e.getStatusCode(), e.getApiResponse() != null ? e.getApiResponse().getContent() : "null");
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                "Error al iniciar el pago: " + e.getMessage());
-        } catch (MPException e) {
-            log.error("MercadoPago error: {}", e.getMessage());
+            return Map.of(
+                "token", response.getToken(),
+                "url",   response.getUrl()
+            );
+        } catch (Exception e) {
+            log.error("Error al crear transacción Transbank: {}", e.getMessage());
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                 "Error al iniciar el pago. Intenta nuevamente.");
         }
     }
 
-    public void procesarWebhook(Map<String, Object> body, String queryId, String topic) {
+    public String confirmarTransaccion(String token) {
+        if (token == null) {
+            log.info("token_ws nulo: pago cancelado o con timeout");
+            return frontendUrl + "/pagos/error?motivo=cancelado";
+        }
+
+        if (suscripcionRepository.existsByTbkToken(token)) {
+            log.info("Token {} ya procesado, redirigiendo a éxito", token);
+            return frontendUrl + "/pagos/exito";
+        }
+
         try {
-            Long paymentId = resolverPaymentId(body, queryId, topic);
-            if (paymentId == null) return;
+            WebpayPlusTransactionCommitResponse response = buildTransaction().commit(token);
 
-            MercadoPagoConfig.setAccessToken(mpAccessToken);
-            Payment payment = new PaymentClient().get(paymentId);
-
-            if (!"approved".equals(payment.getStatus())) {
-                log.info("Pago {} con estado {}, ignorado", paymentId, payment.getStatus());
-                return;
+            if (!"AUTHORIZED".equals(response.getStatus())) {
+                log.warn("Transacción {} con estado {}", token, response.getStatus());
+                return frontendUrl + "/pagos/error?status=" + response.getStatus();
             }
 
-            // Evitar procesar el mismo pago dos veces
-            if (suscripcionRepository.existsByMpPaymentId(paymentId.toString())) {
-                log.info("Pago {} ya procesado, ignorado", paymentId);
-                return;
-            }
-
-            String externalRef = payment.getExternalReference();
-            if (externalRef == null || !externalRef.contains("|")) {
-                log.warn("externalReference inválido: {}", externalRef);
-                return;
-            }
-
-            String[] partes = externalRef.split("\\|", 2);
+            // buyOrder formato: "userId-PLAN-timestamp"
+            String buyOrder = response.getBuyOrder();
+            String[] partes = buyOrder.split("-", 3);
             Long usuarioId = Long.parseLong(partes[0]);
             String planNombre = partes[1];
 
             PlanInfo config = PLANES.get(planNombre);
             if (config == null) {
-                log.warn("Plan desconocido en pago {}: {}", paymentId, planNombre);
-                return;
+                log.warn("Plan desconocido en buyOrder {}", buyOrder);
+                return frontendUrl + "/pagos/error";
             }
 
             Usuario usuario = usuarioRepository.findById(usuarioId).orElse(null);
             if (usuario == null) {
-                log.warn("Usuario {} no encontrado para pago {}", usuarioId, paymentId);
-                return;
+                log.warn("Usuario {} no encontrado para token {}", usuarioId, token);
+                return frontendUrl + "/pagos/error";
             }
 
             usuario.setPlan(config.getPlan());
@@ -169,49 +159,21 @@ public class PagoService {
 
             Suscripcion suscripcion = new Suscripcion();
             suscripcion.setUsuario(usuario);
-            suscripcion.setMpPaymentId(paymentId.toString());
+            suscripcion.setTbkToken(token);
             suscripcion.setPlan(planNombre);
             suscripcion.setMonto(config.getPrecio());
-            suscripcion.setEstado("approved");
+            suscripcion.setEstado("AUTHORIZED");
             suscripcion.setCreditosOtorgados(config.getCreditos());
             suscripcionRepository.save(suscripcion);
 
-            log.info("Pago {} procesado: usuario {} -> plan {} +{} créditos",
-                paymentId, usuarioId, planNombre, config.getCreditos());
+            log.info("Pago Transbank confirmado: usuario {} -> plan {} +{} créditos",
+                usuarioId, planNombre, config.getCreditos());
 
-        } catch (MPException | MPApiException e) {
-            log.error("Error al consultar pago en MercadoPago: {}", e.getMessage());
+            return frontendUrl + "/pagos/exito";
+
         } catch (Exception e) {
-            log.error("Error inesperado al procesar webhook: {}", e.getMessage());
+            log.error("Error al confirmar transacción Transbank {}: {}", token, e.getMessage());
+            return frontendUrl + "/pagos/error";
         }
-    }
-
-    private Long resolverPaymentId(Map<String, Object> body, String queryId, String topic) {
-        // Formato IPN: query params ?id=xxx&topic=payment
-        if ("payment".equals(topic) && queryId != null) {
-            return Long.parseLong(queryId);
-        }
-
-        // Formato Webhook: body JSON {"type":"payment","data":{"id":"xxx"}}
-        if (body != null) {
-            String type = (String) body.get("type");
-            String action = (String) body.get("action");
-
-            boolean esEvento = "payment".equals(type)
-                || "payment.created".equals(action)
-                || "payment.updated".equals(action);
-
-            if (esEvento) {
-                Object data = body.get("data");
-                if (data instanceof Map<?, ?> dataMap) {
-                    Object idObj = dataMap.get("id");
-                    if (idObj != null) {
-                        return Long.parseLong(idObj.toString());
-                    }
-                }
-            }
-        }
-
-        return null;
     }
 }

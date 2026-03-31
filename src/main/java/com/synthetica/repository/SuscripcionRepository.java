@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface SuscripcionRepository extends JpaRepository<Suscripcion, Long> {
 
-    boolean existsByMpPaymentId(String mpPaymentId);
+    boolean existsByTbkToken(String tbkToken);
 
     List<Suscripcion> findByUsuarioIdOrderByCreadoEnDesc(Long usuarioId);
 }
