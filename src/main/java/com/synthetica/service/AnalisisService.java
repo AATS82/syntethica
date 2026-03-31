@@ -57,14 +57,14 @@ public class AnalisisService {
         resultado.put("pregunta", preguntaTexto);
 
         // ── Distribuciones demográficas (se usan internamente en otros análisis) ─
-        Map<String, Integer> porSexo = distribucion(validas, r -> r.getPersona().getSexo());
-        Map<String, Integer> porNSE = distribucion(validas, r -> r.getPersona().getNivelSocioeconomico());
-        Map<String, Integer> porEducacion = distribucion(validas, r -> r.getPersona().getEducacion());
+        Map<String, Integer> porSexo = distribucion(validas, r -> r.getSexoEfectivo());
+        Map<String, Integer> porNSE = distribucion(validas, r -> r.getNseEfectivo());
+        Map<String, Integer> porEducacion = distribucion(validas, r -> r.getEducacionEfectiva());
         Map<String, Integer> porEdad = distribucionEdad(validas);
 
-        resultado.put("porPais", distribucion(validas, r -> r.getPersona().getPais()));
-        resultado.put("porCiudad", top(distribucion(validas, r -> r.getPersona().getCiudad()), 10));
-        resultado.put("porOcupacion", top(distribucion(validas, r -> r.getPersona().getOcupacion()), 10));
+        resultado.put("porPais", distribucion(validas, r -> r.getPaisEfectivo()));
+        resultado.put("porCiudad", top(distribucion(validas, r -> r.getCiudadEfectiva()), 10));
+        resultado.put("porOcupacion", top(distribucion(validas, r -> r.getOcupacionEfectiva()), 10));
 
         // ── Métricas de engagement ────────────────────────────────────────────
         resultado.put("engagement", calcularEngagement(validas));
@@ -90,10 +90,7 @@ public class AnalisisService {
 
         resultado.put("respuestas", validas.stream().limit(20).map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("persona", r.getPersona().getNombre() + ", "
-                    + r.getPersona().getEdad() + " años, "
-                    + r.getPersona().getCiudad() + ", "
-                    + r.getPersona().getNivelSocioeconomico());
+            m.put("persona", r.getPerfilDescripcion());
             m.put("texto", r.getRespuestaTexto());
             return m;
         }).toList());
@@ -141,8 +138,8 @@ public class AnalisisService {
 
         // Incluir datos demográficos por respuesta para que Claude detecte patrones por segmento
         String textos = lote.stream()
-                .map(r -> "- [" + r.getPersona().getSexo() + ", " + r.getPersona().getEdad() + " años, "
-                        + r.getPersona().getNivelSocioeconomico() + "] " + r.getRespuestaTexto())
+                .map(r -> "- [" + r.getSexoEfectivo() + ", " + r.getEdadEfectiva() + " años, "
+                        + r.getNseEfectivo() + "] " + r.getRespuestaTexto())
                 .collect(Collectors.joining("\n"));
 
         String contextoStr = esContextoSignificativo(contexto) ? "\nCONTEXTO: " + contexto : "";
@@ -281,8 +278,7 @@ public class AnalisisService {
 
         Map<String, List<Respuesta>> porNSE = respuestas.stream()
                 .collect(Collectors.groupingBy(r ->
-                        r.getPersona().getNivelSocioeconomico() != null
-                                ? r.getPersona().getNivelSocioeconomico() : "No especificado"));
+                        r.getNseEfectivo() != null ? r.getNseEfectivo() : "No especificado"));
 
         List<Respuesta> muestra = new ArrayList<>();
         for (Map.Entry<String, List<Respuesta>> entry : porNSE.entrySet()) {
@@ -360,10 +356,10 @@ public class AnalisisService {
         int total = validas.size();
 
         // Agrupar respuestas por cada dimensión con hasta 4 ejemplos por grupo
-        String bloqueNSE    = construirBloqueGrupo("NSE",        validas, r -> r.getPersona().getNivelSocioeconomico(), porNSE,      total, 4);
-        String bloqueSexo   = construirBloqueGrupo("Sexo",       validas, r -> r.getPersona().getSexo(),                porSexo,     total, 4);
+        String bloqueNSE    = construirBloqueGrupo("NSE",        validas, r -> r.getNseEfectivo(),        porNSE,       total, 4);
+        String bloqueSexo   = construirBloqueGrupo("Sexo",       validas, r -> r.getSexoEfectivo(),       porSexo,      total, 4);
         String bloqueEdad   = construirBloqueGrupoEdad(validas, porEdad, total, 4);
-        String bloqueEduc   = construirBloqueGrupo("Educación",  validas, r -> r.getPersona().getEducacion(),          porEducacion, total, 3);
+        String bloqueEduc   = construirBloqueGrupo("Educación",  validas, r -> r.getEducacionEfectiva(),  porEducacion, total, 3);
 
         String prompt = """
                 Tienes respuestas a esta pregunta de encuesta: "%s"
@@ -443,7 +439,8 @@ public class AnalisisService {
 
         Map<String, List<Respuesta>> agrupadas = validas.stream()
                 .collect(Collectors.groupingBy(r -> {
-                    int edad = r.getPersona().getEdad();
+                    Integer edad = r.getEdadEfectiva();
+                    if (edad == null) return "No especificado";
                     return edad < 25 ? "18-24" : edad < 35 ? "25-34" : edad < 45 ? "35-44"
                             : edad < 55 ? "45-54" : edad < 65 ? "55-64" : "65+";
                 }));
@@ -489,8 +486,8 @@ public class AnalisisService {
         List<Respuesta> muestra = tomarMuestraEstratificada(validas, BATCH_SIZE);
 
         String textos = muestra.stream()
-                .map(r -> "- [" + r.getPersona().getSexo() + ", " + r.getPersona().getEdad()
-                        + " años, " + r.getPersona().getNivelSocioeconomico() + "] "
+                .map(r -> "- [" + r.getSexoEfectivo() + ", " + r.getEdadEfectiva()
+                        + " años, " + r.getNseEfectivo() + "] "
                         + r.getRespuestaTexto())
                 .collect(Collectors.joining("\n"));
 
@@ -544,11 +541,11 @@ public class AnalisisService {
         List<Respuesta> muestra = tomarMuestraDiversa(validas, 40);
 
         String textos = muestra.stream()
-                .map(r -> "- [" + r.getPersona().getNombre() + ", "
-                        + r.getPersona().getSexo() + ", "
-                        + r.getPersona().getEdad() + " años, "
-                        + r.getPersona().getOcupacion() + ", "
-                        + r.getPersona().getNivelSocioeconomico() + "] "
+                .map(r -> "- [" + r.getNombreEfectivo() + ", "
+                        + r.getSexoEfectivo() + ", "
+                        + r.getEdadEfectiva() + " años, "
+                        + r.getOcupacionEfectiva() + ", "
+                        + r.getNseEfectivo() + "] "
                         + r.getRespuestaTexto())
                 .collect(Collectors.joining("\n"));
 
@@ -599,10 +596,8 @@ public class AnalisisService {
 
         Map<String, List<Respuesta>> porGrupo = respuestas.stream()
                 .collect(Collectors.groupingBy(r -> {
-                    String nse = r.getPersona().getNivelSocioeconomico() != null
-                            ? r.getPersona().getNivelSocioeconomico() : "No especificado";
-                    String sexo = r.getPersona().getSexo() != null
-                            ? r.getPersona().getSexo() : "No especificado";
+                    String nse  = r.getNseEfectivo()  != null ? r.getNseEfectivo()  : "No especificado";
+                    String sexo = r.getSexoEfectivo() != null ? r.getSexoEfectivo() : "No especificado";
                     return nse + "|" + sexo;
                 }));
 
@@ -671,7 +666,8 @@ public class AnalisisService {
         dist.put("65+", 0);
 
         for (Respuesta r : respuestas) {
-            int edad = r.getPersona().getEdad();
+            Integer edad = r.getEdadEfectiva();
+            if (edad == null) continue;
             String rango = edad < 25 ? "18-24" : edad < 35 ? "25-34" : edad < 45 ? "35-44"
                     : edad < 55 ? "45-54" : edad < 65 ? "55-64" : "65+";
             dist.merge(rango, 1, Integer::sum);

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.synthetica.model.Persona;
 import com.synthetica.model.Pregunta;
 import com.synthetica.model.enums.TipoPregunta;
+import com.synthetica.service.PoblacionService.PerfilSintetico;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -41,6 +42,40 @@ public class ClaudeService {
     public String responderPregunta(Persona persona, Pregunta pregunta, String contextoEncuesta) throws Exception {
 
         String systemPrompt = buildSystemPrompt(persona, contextoEncuesta, pregunta.getTipo());
+        String userPrompt = buildUserPrompt(pregunta);
+
+        Map<String, Object> body = Map.of(
+                "model", model,
+                "max_tokens", maxTokens,
+                "system", systemPrompt,
+                "messages", List.of(Map.of("role", "user", "content", userPrompt))
+        );
+
+        String jsonBody = mapper.writeValueAsString(body);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrl))
+                .header("Content-Type", "application/json")
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .timeout(Duration.ofSeconds(60))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("Claude API error: " + response.statusCode() + " - " + response.body());
+        }
+
+        JsonNode json = mapper.readTree(response.body());
+        return json.path("content").get(0).path("text").asText().trim();
+    }
+
+    // ── Responder una pregunta como un perfil sintético ───────────────────────
+    public String responderPregunta(PerfilSintetico perfil, Pregunta pregunta, String contextoEncuesta) throws Exception {
+
+        String systemPrompt = buildSystemPromptSintetico(perfil, contextoEncuesta, pregunta.getTipo());
         String userPrompt = buildUserPrompt(pregunta);
 
         Map<String, Object> body = Map.of(
@@ -121,6 +156,31 @@ public class ClaudeService {
     }
 
     // ── Builders de prompts ───────────────────────────────────────────────────
+
+    private String buildSystemPromptSintetico(PerfilSintetico perfil, String contextoEncuesta, TipoPregunta tipo) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(perfil.toPromptContext());
+        sb.append("\n\n");
+        sb.append("Estás respondiendo una encuesta. ");
+        if (contextoEncuesta != null && !contextoEncuesta.isBlank()) {
+            sb.append("Contexto: ").append(contextoEncuesta).append(" ");
+        }
+        sb.append("""
+
+        INSTRUCCIONES IMPORTANTES:
+        - Responde como lo haría esta persona real, con su vocabulario, nivel educacional y perspectiva propia.
+        - NO uses frases introductorias genéricas como "Mira", "Honestamente", "La verdad es que".
+        - Varía el estilo: a veces directo, a veces emocional, a veces escéptico, a veces entusiasta.
+        - Refleja tu situación personal concreta en la respuesta.
+        - Máximo 3 oraciones. Sin rodeos.
+        - Primera persona, tono natural y auténtico.
+        """);
+        if (tipo == TipoPregunta.LIKERT) {
+            sb.append("Responde SOLO con número 1-5 seguido de máximo 1 oración. Formato: \"[número]: [razón]\"");
+        }
+        return sb.toString();
+    }
+
     private String buildSystemPrompt(Persona persona, String contextoEncuesta, TipoPregunta tipo) {
         StringBuilder sb = new StringBuilder();
 
