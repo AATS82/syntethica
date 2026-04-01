@@ -106,6 +106,61 @@ public class ClaudeService {
         return json.path("content").get(0).path("text").asText().trim();
     }
 
+    // ── Responder usando un contexto de perfil ya guardado (para contrapregunta) ─
+    public String responderConContexto(String perfilContexto, Pregunta pregunta, String contextoEncuesta) throws Exception {
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(perfilContexto);
+        sb.append("\n\n");
+        sb.append("Estás respondiendo una encuesta. ");
+        if (contextoEncuesta != null && !contextoEncuesta.isBlank()) {
+            sb.append("Contexto: ").append(contextoEncuesta).append(" ");
+        }
+        sb.append("""
+
+        INSTRUCCIONES IMPORTANTES:
+        - Responde como lo haría esta persona real, con su vocabulario, nivel educacional y perspectiva propia.
+        - NO uses frases introductorias genéricas como "Mira", "Honestamente", "La verdad es que".
+        - Varía el estilo: a veces directo, a veces emocional, a veces escéptico, a veces entusiasta.
+        - Tu NSE y educación se notan en el vocabulario: educación básica/media → lenguaje cotidiano y simple; técnica/universitaria/postgrado → puedes ser más preciso o técnico.
+        - Si tu NSE es Bajo o Medio-bajo, el precio y el dinero son una preocupación central que aparece en tu respuesta.
+        - Si vives en zona rural o en una región fuera de la Región Metropolitana, tus referencias y experiencias reflejan esa realidad local, no la de Santiago.
+        - Evita respuestas que podría dar cualquier persona — tu respuesta debe surgir de TU situación concreta de vida.
+        - Máximo 3 oraciones. Sin rodeos.
+        - Primera persona, tono natural y auténtico.
+        """);
+        if (pregunta.getTipo() == TipoPregunta.LIKERT) {
+            sb.append("Responde SOLO con número 1-5 seguido de máximo 1 oración. Formato: \"[número]: [razón]\"");
+        }
+
+        Map<String, Object> body = Map.of(
+                "model", model,
+                "max_tokens", maxTokens,
+                "system", sb.toString(),
+                "messages", List.of(Map.of("role", "user", "content", buildUserPrompt(pregunta)))
+        );
+
+        String jsonBody = mapper.writeValueAsString(body);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrl))
+                .header("Content-Type", "application/json")
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .timeout(Duration.ofSeconds(60))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("Claude API error: " + response.statusCode() + " - " + response.body());
+        }
+
+        JsonNode json = mapper.readTree(response.body());
+        return json.path("content").get(0).path("text").asText().trim();
+    }
+
     // ── Generar una persona aleatoria ─────────────────────────────────────────
     public String generarPersonaAleatoria(String pais) throws Exception {
 
@@ -171,7 +226,10 @@ public class ClaudeService {
         - Responde como lo haría esta persona real, con su vocabulario, nivel educacional y perspectiva propia.
         - NO uses frases introductorias genéricas como "Mira", "Honestamente", "La verdad es que".
         - Varía el estilo: a veces directo, a veces emocional, a veces escéptico, a veces entusiasta.
-        - Refleja tu situación personal concreta en la respuesta.
+        - Tu NSE y educación se notan en el vocabulario: educación básica/media → lenguaje cotidiano y simple; técnica/universitaria/postgrado → puedes ser más preciso o técnico.
+        - Si tu NSE es Bajo o Medio-bajo, el precio y el dinero son una preocupación central que aparece en tu respuesta.
+        - Si vives en zona rural o en una región fuera de la Región Metropolitana, tus referencias y experiencias reflejan esa realidad local, no la de Santiago.
+        - Evita respuestas que podría dar cualquier persona — tu respuesta debe surgir de TU situación concreta de vida.
         - Máximo 3 oraciones. Sin rodeos.
         - Primera persona, tono natural y auténtico.
         """);

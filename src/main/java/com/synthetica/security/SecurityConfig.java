@@ -41,6 +41,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Endpoints públicos
                 .requestMatchers(
+                    "/api/encuesta-rapida",
                     "/api/encuesta-rapida/*/progreso",
                     "/api/encuesta-rapida/*/resultados",
                     "/api/personas",

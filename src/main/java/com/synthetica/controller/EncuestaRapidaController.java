@@ -49,10 +49,12 @@ public class EncuestaRapidaController {
     @PostMapping
     public ResponseEntity<?> iniciar(@RequestBody EncuestaRapidaRequestDTO dto, Authentication auth) {
         log.info("[API] POST /api/encuesta-rapida — pregunta='{}'", dto.getPregunta());
-        if (auth == null || !auth.isAuthenticated()) {
-            return ResponseEntity.status(401).body(Map.of("error", "No autenticado"));
+        boolean autenticado = auth != null && auth.isAuthenticated();
+        int cantidad = dto.getCantidad() != null ? dto.getCantidad() : 50;
+        if (!autenticado && cantidad > 50) {
+            return ResponseEntity.status(401).body(Map.of("error", "Debes iniciar sesión para encuestar a más de 50 personas"));
         }
-        Long usuarioId = (Long) auth.getDetails();
+        Long usuarioId = autenticado ? (Long) auth.getDetails() : null;
         try {
             Simulacion sim = encuestaRapidaService.iniciar(dto, usuarioId);
             log.info("[API] Encuesta rápida iniciada — simulacionId={}", sim.getId());
@@ -93,6 +95,33 @@ public class EncuestaRapidaController {
             return ResponseEntity.ok(analisisService.analizar(id));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // Lanzar contrapregunta sobre los mismos perfiles de una simulación anterior
+    @PostMapping("/{id}/contrapregunta")
+    public ResponseEntity<?> contrapregunta(@PathVariable Long id,
+            @RequestBody Map<String, String> body, Authentication auth) {
+        log.info("[API] POST /api/encuesta-rapida/{}/contrapregunta", id);
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(401).body(Map.of("error", "No autenticado"));
+        }
+        String pregunta = body.get("pregunta");
+        if (pregunta == null || pregunta.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "El campo 'pregunta' es requerido"));
+        }
+        Long usuarioId = (Long) auth.getDetails();
+        try {
+            Simulacion sim = encuestaRapidaService.iniciarContrapregunta(id, pregunta, usuarioId);
+            return ResponseEntity.ok(Map.of(
+                    "simulacionId", sim.getId(),
+                    "simulacionOrigenId", id,
+                    "total", sim.getTotalRespuestas(),
+                    "estado", sim.getEstado().name()
+            ));
+        } catch (Exception e) {
+            log.error("[API] Error al iniciar contrapregunta: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 

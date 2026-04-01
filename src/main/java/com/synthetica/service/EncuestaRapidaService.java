@@ -61,9 +61,13 @@ public class EncuestaRapidaService {
             throw new IllegalArgumentException("La cantidad debe estar entre 1 y 500");
         }
 
-        // Validar y descontar créditos antes de iniciar
-        descontarCreditos(usuarioId, cantidad);
-        log.info("[ENCUESTA-RAPIDA] {} créditos descontados al usuario {}", cantidad, usuarioId);
+        // Validar y descontar créditos antes de iniciar (usuarios anónimos tienen 50 gratis)
+        if (usuarioId != null) {
+            descontarCreditos(usuarioId, cantidad);
+            log.info("[ENCUESTA-RAPIDA] {} créditos descontados al usuario {}", cantidad, usuarioId);
+        } else {
+            log.info("[ENCUESTA-RAPIDA] Usuario anónimo — {} encuestados gratis (sin descuento de créditos)", cantidad);
+        }
 
         if (filtros != null) {
             log.info("[ENCUESTA-RAPIDA] Filtros aplicados — pais={}, sexo={}, edad={}-{}, educacion={}, nse={}",
@@ -117,9 +121,11 @@ public class EncuestaRapidaService {
     @Transactional
     public Long[] guardarEncuestaYPregunta(String textoPregunta, Long usuarioId) {
         log.debug("[ENCUESTA-RAPIDA] Creando entidades Encuesta y Pregunta...");
-        Usuario usuario = usuarioRepository.findById(usuarioId).orElseThrow();
         Encuesta encuesta = new Encuesta();
-        encuesta.setUsuario(usuario);
+        if (usuarioId != null) {
+            Usuario usuario = usuarioRepository.findById(usuarioId).orElseThrow();
+            encuesta.setUsuario(usuario);
+        }
         encuesta.setTitulo(textoPregunta.substring(0, Math.min(100, textoPregunta.length())));
         encuesta.setContexto("Encuesta rápida generada automáticamente");
 
@@ -242,6 +248,7 @@ public class EncuestaRapidaService {
         r.setPerfilEducacion(perfil.getEducacion());
         r.setPerfilOcupacion(perfil.getOcupacion());
         r.setPerfilNse(perfil.getNivelSocioeconomico());
+        r.setPerfilContexto(perfil.toPromptContext());
         return r;
     }
 
@@ -255,5 +262,126 @@ public class EncuestaRapidaService {
 
     public List<Respuesta> obtenerRespuestas(Long simulacionId) {
         return respuestaRepository.findBySimulacionId(simulacionId);
+    }
+
+    // ── Contrapregunta: relanza los mismos perfiles con una nueva pregunta ────
+    public Simulacion iniciarContrapregunta(Long simulacionOrigenId, String textoPregunta, Long usuarioId) {
+        log.info("[CONTRAPREGUNTA] simulacionOrigen={}, pregunta='{}'", simulacionOrigenId, textoPregunta);
+
+        List<Respuesta> respuestasOrigen = respuestaRepository.findBySimulacionIdOrdenado(simulacionOrigenId);
+        if (respuestasOrigen.isEmpty()) {
+            throw new IllegalArgumentException("La simulación origen no tiene respuestas");
+        }
+
+        // Extraer un contexto de perfil por persona (deduplicar por nombre+edad)
+        List<String> contextos = respuestasOrigen.stream()
+                .filter(r -> r.getPerfilContexto() != null && !r.getPerfilContexto().isBlank())
+                .map(Respuesta::getPerfilContexto)
+                .distinct()
+                .toList();
+
+        if (contextos.isEmpty()) {
+            throw new IllegalStateException("La simulación origen no tiene perfiles con contexto guardado. Solo las simulaciones nuevas soportan contrapregunta.");
+        }
+
+        descontarCreditos(usuarioId, contextos.size());
+        log.info("[CONTRAPREGUNTA] {} créditos descontados, {} perfiles a reencuestar", contextos.size(), contextos.size());
+
+        Long[] ids = guardarEncuestaYPregunta(textoPregunta, usuarioId);
+        Long preguntaId = ids[1];
+
+        Simulacion simulacion = guardarSimulacionContrapregunta(ids[0], contextos.size(), simulacionOrigenId);
+        log.info("[CONTRAPREGUNTA] Nueva simulacionId={}", simulacion.getId());
+
+        ejecutarContrapreguntaAsync(simulacion.getId(), contextos, preguntaId,
+                respuestasOrigen.get(0));
+
+        return simulacion;
+    }
+
+    @Transactional
+    public Simulacion guardarSimulacionContrapregunta(Long encuestaId, int total, Long origenId) {
+        Encuesta encuesta = encuestaRepository.findById(encuestaId).orElseThrow();
+        Simulacion simulacion = new Simulacion();
+        simulacion.setEncuesta(encuesta);
+        simulacion.setEstado(EstadoSimulacion.PENDIENTE);
+        simulacion.setTotalRespuestas(total);
+        simulacion.setRespuestasCompletadas(0);
+        simulacion.setSimulacionOrigenId(origenId);
+        return simulacionRepository.save(simulacion);
+    }
+
+    @Async("simulacionExecutor")
+    public void ejecutarContrapreguntaAsync(Long simulacionId, List<String> contextos,
+            Long preguntaId, Respuesta ejemploOrigen) {
+
+        log.info("[CONTRAPREGUNTA-{}] Inicio async. {} perfiles.", simulacionId, contextos.size());
+
+        Simulacion simulacion = simulacionRepository.findById(simulacionId).orElseThrow();
+        simulacion.setEstado(EstadoSimulacion.CORRIENDO);
+        simulacionRepository.save(simulacion);
+
+        Pregunta pregunta = encuestaRepository.findById(simulacion.getEncuesta().getId())
+                .orElseThrow().getPreguntas().get(0);
+
+        try {
+            int batchSize = 3;
+            for (int i = 0; i < contextos.size(); i += batchSize) {
+                List<String> lote = contextos.subList(i, Math.min(i + batchSize, contextos.size()));
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+                for (String contexto : lote) {
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            String texto = claudeService.responderConContexto(contexto, pregunta, null);
+                            Respuesta r = crearRespuestaDesdeContexto(simulacion, pregunta, contexto, texto);
+                            guardarYAvanzar(simulacionId, r);
+                        } catch (Exception e) {
+                            log.error("[CONTRAPREGUNTA-{}] Error: {}", simulacionId, e.getMessage());
+                            Respuesta r = crearRespuestaDesdeContexto(simulacion, pregunta, contexto, "[Error al obtener respuesta]");
+                            guardarYAvanzar(simulacionId, r);
+                        }
+                    });
+                    futures.add(future);
+                }
+
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(5, TimeUnit.MINUTES);
+
+                if (i + batchSize < contextos.size()) {
+                    Thread.sleep(1000);
+                }
+            }
+
+            Simulacion finalizada = simulacionRepository.findById(simulacionId).orElseThrow();
+            finalizada.setEstado(EstadoSimulacion.COMPLETA);
+            finalizada.setFinalizadoEn(java.time.LocalDateTime.now());
+            simulacionRepository.save(finalizada);
+            log.info("[CONTRAPREGUNTA-{}] COMPLETA.", simulacionId);
+
+        } catch (Exception e) {
+            log.error("[CONTRAPREGUNTA-{}] Error fatal: {}", simulacionId, e.getMessage());
+            Simulacion fallida = simulacionRepository.findById(simulacionId).orElseThrow();
+            fallida.setEstado(EstadoSimulacion.ERROR);
+            fallida.setFinalizadoEn(java.time.LocalDateTime.now());
+            simulacionRepository.save(fallida);
+        }
+    }
+
+    private Respuesta crearRespuestaDesdeContexto(Simulacion simulacion, Pregunta pregunta,
+            String contexto, String texto) {
+        // Extraer nombre del contexto (primera línea: "Eres [nombre], ...")
+        String nombre = "Perfil sintético";
+        if (contexto != null && contexto.startsWith("Eres ")) {
+            int coma = contexto.indexOf(',');
+            if (coma > 5) nombre = contexto.substring(5, coma);
+        }
+        Respuesta r = new Respuesta();
+        r.setSimulacion(simulacion);
+        r.setPregunta(pregunta);
+        r.setRespuestaTexto(texto);
+        r.setPerfilContexto(contexto);
+        r.setPerfilNombre(nombre);
+        return r;
     }
 }

@@ -44,6 +44,10 @@ public class Simulacion {
     @Column(columnDefinition = "TEXT")
     private String analisisJson;
 
+    // ID de la simulación original si esta es una contrapregunta
+    @Column(name = "simulacion_origen_id")
+    private Long simulacionOrigenId;
+
     // ── Helper para calcular % de progreso ────────────────────────────────────
     @Transient
     public int getPorcentajeProgreso() {
@@ -126,6 +130,14 @@ public class Simulacion {
 
     public void setAnalisisJson(String analisisJson) {
         this.analisisJson = analisisJson;
+    }
+
+    public Long getSimulacionOrigenId() {
+        return simulacionOrigenId;
+    }
+
+    public void setSimulacionOrigenId(Long simulacionOrigenId) {
+        this.simulacionOrigenId = simulacionOrigenId;
     }
 
 }

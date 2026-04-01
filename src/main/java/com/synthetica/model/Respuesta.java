@@ -67,6 +67,10 @@ public class Respuesta {
     @Column(name = "perfil_nse")
     private String perfilNse;
 
+    // Contexto completo del perfil (system prompt) para poder reencuestar con la misma persona
+    @Column(name = "perfil_contexto", columnDefinition = "TEXT")
+    private String perfilContexto;
+
     public Respuesta() {
     }
 
@@ -163,4 +167,7 @@ public class Respuesta {
 
     public String getPerfilNse() { return perfilNse; }
     public void setPerfilNse(String perfilNse) { this.perfilNse = perfilNse; }
+
+    public String getPerfilContexto() { return perfilContexto; }
+    public void setPerfilContexto(String perfilContexto) { this.perfilContexto = perfilContexto; }
 }

@@ -657,7 +657,8 @@ public class AnalisisService {
 
     private String construirPerfilDemografico(int total, Map<String, Integer> porSexo,
             Map<String, Integer> porNSE, Map<String, Integer> porEdad) {
-        return "Total: " + total + " respondentes\n"
+        return "Muestra calibrada con datos del Censo 2024 / CASEN 2022 / INE 2024 — representa la distribución real de la población chilena mayor de 18 años.\n"
+                + "Total: " + total + " respondentes\n"
                 + "Sexo: " + formatearDistribucion(porSexo, total) + "\n"
                 + "NSE: " + formatearDistribucion(porNSE, total) + "\n"
                 + "Edad: " + formatearDistribucion(porEdad, total);
