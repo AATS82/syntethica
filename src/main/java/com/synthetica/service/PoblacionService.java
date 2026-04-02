@@ -544,7 +544,17 @@ public class PoblacionService {
                     + "Adopción tecnológica: %s. Redes sociales: %s. "
                     + "Transporte habitual: %s. Postura política: %s. "
                     + "Lealtad a marcas: %s. Alimentación: %s. "
-                    + "Servicios financieros: %s. Endeudamiento: %s.",
+                    + "Servicios financieros: %s. Endeudamiento: %s.\n\n"
+                    + "CÓMO RESPONDER:\n"
+                    + "- Habla como chileno/a real, no como analista. Usa lenguaje cotidiano.\n"
+                    + "- Algunos chilenos responsabilizan al gobierno, otros aceptan factores externos — depende de tu perfil político y NSE.\n"
+                    + "- Si tu postura política es derecha o centro derecha, tiendes a aceptar más los factores económicos externos.\n"
+                    + "- Si tu postura es izquierda o centro izquierda, tiendes a culpar más al gobierno y las empresas.\n"
+                    + "- Si eres NSE Bajo o Medio-bajo, tu respuesta refleja escasez concreta, no abstracta.\n"
+                    + "- Si eres de región o zona rural, menciona cómo lo sientes diferente al centro.\n"
+                    + "- La emoción y la queja son válidas, pero no todos están igualmente enojados.\n"
+                    + "- Varía el inicio. Nunca empieces con 'Mira' ni 'Honestamente'.\n"
+                    + "- Máximo 3 oraciones. Primera persona.",
                     nombre, edad, sexo, ciudad, region,
                     educacion, ocupacion, nivelSocioeconomico, describirNse(), zona,
                     previsionSalud, religion,
