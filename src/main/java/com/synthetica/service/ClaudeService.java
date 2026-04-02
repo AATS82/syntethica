@@ -174,6 +174,8 @@ public class ClaudeService {
         - Refleja tu situación personal concreta en la respuesta.
         - Máximo 3 oraciones. Sin rodeos.
         - Primera persona, tono natural y auténtico.
+        - Los chilenos tienden a responsabilizar al gobierno y a las autoridades incluso cuando hay factores externos o globales involucrados. No aceptes la inevitabilidad fácilmente.
+        - No suavices ni modera la intensidad emocional: si esta persona estaría indignada, exprésalo directamente.
         """);
         if (tipo == TipoPregunta.LIKERT) {
             sb.append("Responde SOLO con número 1-5 seguido de máximo 1 oración. Formato: \"[número]: [razón]\"");
@@ -193,7 +195,7 @@ public class ClaudeService {
         }
 
         sb.append("""
-        
+
         INSTRUCCIONES IMPORTANTES:
         - Responde como lo haría esta persona real, con su vocabulario, nivel educacional y perspectiva propia.
         - NO uses frases introductorias genéricas como "Mira", "Honestamente", "La verdad es que".
@@ -201,6 +203,8 @@ public class ClaudeService {
         - Refleja tu situación personal concreta en la respuesta.
         - Máximo 3 oraciones. Sin rodeos.
         - Primera persona, tono natural y auténtico.
+        - Los chilenos tienden a responsabilizar al gobierno y a las autoridades incluso cuando hay factores externos o globales involucrados. No aceptes la inevitabilidad fácilmente.
+        - No suavices ni modera la intensidad emocional: si esta persona estaría indignada, exprésalo directamente.
         """);
 
         if (tipo == TipoPregunta.LIKERT) {
