@@ -2,11 +2,16 @@ package com.synthetica.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.synthetica.model.Respuesta;
+import com.synthetica.model.Simulacion;
+import com.synthetica.model.enums.EstadoSimulacion;
 import com.synthetica.repository.RespuestaRepository;
+import com.synthetica.repository.SimulacionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -20,15 +25,35 @@ public class AnalisisService {
 
     private final RespuestaRepository respuestaRepository;
     private final ClaudeService claudeService;
+    private final SimulacionRepository simulacionRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public AnalisisService(RespuestaRepository respuestaRepository, ClaudeService claudeService) {
+    public AnalisisService(RespuestaRepository respuestaRepository, ClaudeService claudeService,
+            SimulacionRepository simulacionRepository) {
         this.respuestaRepository = respuestaRepository;
         this.claudeService = claudeService;
+        this.simulacionRepository = simulacionRepository;
     }
 
     @Transactional
     public Map<String, Object> analizar(Long simulacionId) throws Exception {
+        Simulacion simulacion = simulacionRepository.findById(simulacionId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulación no encontrada: " + simulacionId));
+
+        if (simulacion.getEstado() == EstadoSimulacion.ERROR) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "La simulación terminó con errores. Los créditos fueron devueltos.");
+        }
+        if (simulacion.getEstado() != EstadoSimulacion.COMPLETA) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "La simulación aún no ha terminado (estado: " + simulacion.getEstado() + ")");
+        }
+
+        if (simulacion.getAnalisisJson() != null) {
+            log.info("[ANALISIS] Retornando análisis guardado para simulacionId={}", simulacionId);
+            return mapper.readValue(simulacion.getAnalisisJson(), new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        }
+
         log.info("[ANALISIS] Iniciando análisis para simulacionId={}", simulacionId);
 
         List<Respuesta> respuestas = respuestaRepository.findBySimulacionIdOrdenado(simulacionId);
@@ -96,6 +121,11 @@ public class AnalisisService {
         }).toList());
 
         log.info("[ANALISIS] Análisis completado para simulacionId={}", simulacionId);
+
+        simulacion.setAnalisisJson(mapper.writeValueAsString(resultado));
+        simulacionRepository.save(simulacion);
+        log.info("[ANALISIS] Análisis guardado en BD para simulacionId={}", simulacionId);
+
         return resultado;
     }
 

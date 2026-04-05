@@ -32,10 +32,17 @@ public class Simulacion {
     // Respuestas completadas hasta ahora (para progreso)
     private Integer respuestasCompletadas = 0;
 
+    // Progreso por lotes
+    private Integer loteActual = 0;
+    private Integer totalLotes = 0;
+
     @Column(updatable = false)
     private LocalDateTime creadoEn = LocalDateTime.now();
 
     private LocalDateTime finalizadoEn;
+
+    @Column(columnDefinition = "TEXT")
+    private String analisisJson;
 
     @OneToMany(mappedBy = "simulacion", cascade = CascadeType.ALL)
     @JsonIgnore
@@ -115,6 +122,30 @@ public class Simulacion {
 
     public void setRespuestas(List<Respuesta> respuestas) {
         this.respuestas = respuestas;
+    }
+
+    public Integer getLoteActual() {
+        return loteActual;
+    }
+
+    public void setLoteActual(Integer loteActual) {
+        this.loteActual = loteActual;
+    }
+
+    public Integer getTotalLotes() {
+        return totalLotes;
+    }
+
+    public void setTotalLotes(Integer totalLotes) {
+        this.totalLotes = totalLotes;
+    }
+
+    public String getAnalisisJson() {
+        return analisisJson;
+    }
+
+    public void setAnalisisJson(String analisisJson) {
+        this.analisisJson = analisisJson;
     }
 
 }

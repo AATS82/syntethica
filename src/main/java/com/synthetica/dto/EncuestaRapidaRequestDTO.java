@@ -4,14 +4,19 @@
  */
 package com.synthetica.dto;
 
-/**
- *
- * @author Totoralillo
- */
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+
 public class EncuestaRapidaRequestDTO {
 
+    @NotBlank(message = "La pregunta no puede estar vacía")
     private String pregunta;
+
+    @Min(value = 1, message = "La cantidad mínima es 1")
+    @Max(value = 500, message = "La cantidad máxima es 500")
     private Integer cantidad = 50;
+
     private FiltrosDTO filtros;
 
     public static class FiltrosDTO {

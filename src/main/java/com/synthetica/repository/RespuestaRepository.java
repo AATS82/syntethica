@@ -15,7 +15,9 @@ public interface RespuestaRepository extends JpaRepository<Respuesta, Long> {
 
     List<Respuesta> findBySimulacionId(Long simulacionId);
 
-    // Para obtener resultados agrupados por pregunta
     @Query("SELECT r FROM Respuesta r WHERE r.simulacion.id = :simulacionId AND r.pregunta.id = :preguntaId")
     List<Respuesta> findBySimulacionIdAndPreguntaId(Long simulacionId, Long preguntaId);
+
+    @Query("SELECT COUNT(r) FROM Respuesta r WHERE r.simulacion.id = :simulacionId AND r.respuestaTexto LIKE '[Error%'")
+    long countErroresBySimulacionId(Long simulacionId);
 }

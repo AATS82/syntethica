@@ -37,7 +37,7 @@ public class Usuario {
     private Plan plan = Plan.FREE;
 
     private Integer creditosUsados = 0;
-    private Integer creditosTotal = 50; // free tier
+    private Integer creditosTotal = Plan.FREE.getCreditosBase();
 
     @Column(updatable = false)
     private LocalDateTime creadoEn = LocalDateTime.now();
@@ -45,7 +45,17 @@ public class Usuario {
     private LocalDateTime ultimoAcceso;
 
     public enum Plan {
-        FREE, STARTER, PRO, BUSINESS
+        FREE(100), STARTER(500), BASIC(1000), PRO(3000), BUSINESS(10000);
+
+        private final int creditosBase;
+
+        Plan(int creditosBase) {
+            this.creditosBase = creditosBase;
+        }
+
+        public int getCreditosBase() {
+            return creditosBase;
+        }
     }
 
     // Getters y Setters

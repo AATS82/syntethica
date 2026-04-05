@@ -40,9 +40,6 @@ public class Respuesta {
 
     // ── Datos del perfil sintético (null si se usó una Persona de BD) ─────────
 
-    @Column(name = "perfil_resumen")
-    private String perfilResumen;
-
     @Column(name = "perfil_nombre")
     private String perfilNombre;
 
@@ -106,10 +103,14 @@ public class Respuesta {
 
     /** Descripción de perfil para mostrar en resultados (API y análisis). */
     public String getPerfilDescripcion() {
-        if (perfilResumen != null && !perfilResumen.isBlank()) return perfilResumen;
         if (persona != null) {
             return persona.getNombre() + ", " + persona.getEdad() + " años, "
                     + persona.getCiudad() + ", " + persona.getNivelSocioeconomico();
+        }
+        if (perfilNombre != null) {
+            return perfilNombre + (perfilEdad != null ? ", " + perfilEdad + " años" : "")
+                    + (perfilCiudad != null ? ", " + perfilCiudad : "")
+                    + (perfilNse != null ? ", " + perfilNse : "");
         }
         return "Perfil sintético";
     }
@@ -136,9 +137,6 @@ public class Respuesta {
 
     public LocalDateTime getRespondidoEn() { return respondidoEn; }
     public void setRespondidoEn(LocalDateTime respondidoEn) { this.respondidoEn = respondidoEn; }
-
-    public String getPerfilResumen() { return perfilResumen; }
-    public void setPerfilResumen(String perfilResumen) { this.perfilResumen = perfilResumen; }
 
     public String getPerfilNombre() { return perfilNombre; }
     public void setPerfilNombre(String perfilNombre) { this.perfilNombre = perfilNombre; }

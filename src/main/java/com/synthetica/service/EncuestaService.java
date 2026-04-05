@@ -5,6 +5,7 @@ import com.synthetica.model.Encuesta;
 import com.synthetica.model.Pregunta;
 import com.synthetica.model.Usuario;
 import com.synthetica.repository.EncuestaRepository;
+import com.synthetica.repository.SimulacionRepository;
 import com.synthetica.repository.UsuarioRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,11 +24,14 @@ public class EncuestaService {
 
     private final EncuestaRepository encuestaRepository;
     private final UsuarioRepository usuarioRepository;
+    private final SimulacionRepository simulacionRepository;
 
     public EncuestaService(EncuestaRepository encuestaRepository,
-                           UsuarioRepository usuarioRepository) {
+                           UsuarioRepository usuarioRepository,
+                           SimulacionRepository simulacionRepository) {
         this.encuestaRepository = encuestaRepository;
         this.usuarioRepository = usuarioRepository;
+        this.simulacionRepository = simulacionRepository;
     }
 
     public List<Encuesta> listarPorUsuario(Long usuarioId) {
@@ -104,6 +108,7 @@ public class EncuestaService {
         return saved;
     }
 
+    @Transactional
     public void eliminar(Long id, Long usuarioId) {
         log.info("[ENCUESTA] Eliminando encuesta id={} para usuarioId={}", id, usuarioId);
         Encuesta encuesta = obtenerPorId(id);
@@ -113,7 +118,11 @@ public class EncuestaService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso para eliminar esta encuesta");
         }
 
+        // Eliminar simulaciones primero (sus respuestas se eliminan por cascade en Simulacion)
+        simulacionRepository.deleteAll(
+                simulacionRepository.findByEncuestaIdOrderByCreadoEnDesc(id));
+
         encuestaRepository.deleteById(id);
-        log.info("[ENCUESTA] Encuesta id={} eliminada", id);
+        log.info("[ENCUESTA] Encuesta id={} y sus simulaciones eliminadas", id);
     }
 }

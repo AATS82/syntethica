@@ -46,6 +46,21 @@ public class PagoController {
         return ResponseEntity.ok(planes);
     }
 
+    // Paquetes de créditos disponibles (público)
+    @GetMapping("/paquetes")
+    public ResponseEntity<?> paquetes() {
+        List<Map<String, Object>> paquetes = PagoService.CREDIT_PACKS.entrySet().stream()
+            .map(e -> Map.<String, Object>of(
+                "id",       e.getKey(),
+                "titulo",   e.getValue().getTitulo(),
+                "precio",   e.getValue().getPrecio(),
+                "creditos", e.getValue().getCreditos()
+            ))
+            .sorted((a, b) -> Integer.compare((int) a.get("creditos"), (int) b.get("creditos")))
+            .collect(Collectors.toList());
+        return ResponseEntity.ok(paquetes);
+    }
+
     // Inicia una transacción Transbank y devuelve token + URL de pago
     @PostMapping("/iniciar")
     public ResponseEntity<?> iniciarPago(@RequestBody Map<String, String> body,

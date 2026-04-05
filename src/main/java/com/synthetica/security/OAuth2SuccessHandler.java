@@ -44,8 +44,9 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         String token = jwtService.generateToken(usuario);
 
+        // Usar fragment (#) en lugar de query param para que el token no quede en logs de servidor
         getRedirectStrategy().sendRedirect(request, response,
-                frontendUrl + "/oauth2/redirect?token=" + token);
+                frontendUrl + "/oauth2/redirect#token=" + token);
     }
 
     private Usuario actualizarUsuario(Usuario u, String nombre, String foto, String googleId) {
@@ -64,6 +65,8 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         u.setNombre(nombre);
         u.setFoto(foto);
         u.setGoogleId(googleId);
+        u.setPlan(Usuario.Plan.FREE);
+        u.setCreditosTotal(Usuario.Plan.FREE.getCreditosBase());
         u.setUltimoAcceso(LocalDateTime.now());
         return usuarioRepository.save(u);
     }

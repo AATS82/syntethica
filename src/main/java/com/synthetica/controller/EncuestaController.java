@@ -28,8 +28,13 @@ public class EncuestaController {
     }
 
     @GetMapping("/{id}")
-    public Encuesta obtener(@PathVariable Long id) {
-        return encuestaService.obtenerPorId(id);
+    public Encuesta obtener(@PathVariable Long id, Authentication auth) {
+        Encuesta encuesta = encuestaService.obtenerPorId(id);
+        Long usuarioId = getUserId(auth);
+        if (encuesta.getUsuario() == null || !encuesta.getUsuario().getId().equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso para ver esta encuesta");
+        }
+        return encuesta;
     }
 
     @PostMapping

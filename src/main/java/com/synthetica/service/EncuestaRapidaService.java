@@ -7,9 +7,11 @@ import com.synthetica.model.Respuesta;
 import com.synthetica.model.Simulacion;
 import com.synthetica.model.enums.EstadoSimulacion;
 import com.synthetica.model.enums.TipoPregunta;
+import com.synthetica.model.Usuario;
 import com.synthetica.repository.EncuestaRepository;
 import com.synthetica.repository.RespuestaRepository;
 import com.synthetica.repository.SimulacionRepository;
+import com.synthetica.repository.UsuarioRepository;
 import com.synthetica.service.PoblacionService.PerfilSintetico;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -31,25 +33,38 @@ public class EncuestaRapidaService {
     private final SimulacionRepository simulacionRepository;
     private final RespuestaRepository respuestaRepository;
     private final ClaudeService claudeService;
+    private final UsuarioRepository usuarioRepository;
+    private final UsuarioService usuarioService;
+    private final RespuestaService respuestaService;
 
     public EncuestaRapidaService(PoblacionService poblacionService,
             EncuestaRepository encuestaRepository,
             SimulacionRepository simulacionRepository,
             RespuestaRepository respuestaRepository,
-            ClaudeService claudeService) {
+            ClaudeService claudeService,
+            UsuarioRepository usuarioRepository,
+            UsuarioService usuarioService,
+            RespuestaService respuestaService) {
         this.poblacionService = poblacionService;
         this.encuestaRepository = encuestaRepository;
         this.simulacionRepository = simulacionRepository;
         this.respuestaRepository = respuestaRepository;
         this.claudeService = claudeService;
+        this.usuarioRepository = usuarioRepository;
+        this.usuarioService = usuarioService;
+        this.respuestaService = respuestaService;
     }
 
-    // Sin @Transactional aquí
-    public Simulacion iniciar(EncuestaRapidaRequestDTO dto) {
+    public Simulacion iniciar(EncuestaRapidaRequestDTO dto, String emailUsuario) {
         log.info("[ENCUESTA-RAPIDA] Iniciando encuesta rápida. Pregunta: '{}'", dto.getPregunta());
 
         var filtros = dto.getFiltros();
         int cantidad = dto.getCantidad() != null ? dto.getCantidad() : 50;
+
+        // Verificar y descontar créditos con lock pesimista para evitar condición de carrera
+        Usuario usuario = usuarioService.descontarCreditos(emailUsuario, cantidad);
+        log.info("[ENCUESTA-RAPIDA] {} créditos descontados para {}. Usados: {}/{}", cantidad, emailUsuario,
+                usuario.getCreditosUsados(), usuario.getCreditosTotal());
 
         if (filtros != null) {
             log.info("[ENCUESTA-RAPIDA] Filtros aplicados — pais={}, sexo={}, edad={}-{}, educacion={}, nse={}",
@@ -68,7 +83,7 @@ public class EncuestaRapidaService {
 
         // Guardar encuesta y pregunta en transacción propia — commit inmediato
         log.debug("[ENCUESTA-RAPIDA] Guardando encuesta y pregunta en BD...");
-        Long[] ids = guardarEncuestaYPregunta(dto.getPregunta());
+        Long[] ids = guardarEncuestaYPregunta(dto.getPregunta(), usuario);
         Long encuestaId = ids[0];
         Long preguntaId = ids[1];
         log.info("[ENCUESTA-RAPIDA] Encuesta guardada — encuestaId={}, preguntaId={}", encuestaId, preguntaId);
@@ -87,11 +102,12 @@ public class EncuestaRapidaService {
     }
 
     @Transactional
-    public Long[] guardarEncuestaYPregunta(String textoPregunta) {
+    public Long[] guardarEncuestaYPregunta(String textoPregunta, Usuario usuario) {
         log.debug("[ENCUESTA-RAPIDA] Creando entidades Encuesta y Pregunta...");
         Encuesta encuesta = new Encuesta();
         encuesta.setTitulo(textoPregunta.substring(0, Math.min(100, textoPregunta.length())));
         encuesta.setContexto("Encuesta rápida generada automáticamente");
+        encuesta.setUsuario(usuario);
 
         Pregunta pregunta = new Pregunta();
         pregunta.setTexto(textoPregunta);
@@ -141,10 +157,17 @@ public class EncuestaRapidaService {
         int batchSize = 3;
         int totalLotes = (int) Math.ceil((double) perfiles.size() / batchSize);
 
+        simulacion.setTotalLotes(totalLotes);
+        simulacionRepository.save(simulacion);
+
         for (int i = 0; i < perfiles.size(); i += batchSize) {
             int loteNum = (i / batchSize) + 1;
             List<PerfilSintetico> lote = perfiles.subList(i, Math.min(i + batchSize, perfiles.size()));
             log.info("[SIMULACION-{}] Procesando lote {}/{} ({} perfiles)", simulacionId, loteNum, totalLotes, lote.size());
+
+            Simulacion simLote = simulacionRepository.findById(simulacionId).orElseThrow();
+            simLote.setLoteActual(loteNum);
+            simulacionRepository.save(simLote);
 
             List<CompletableFuture<Void>> futures = new ArrayList<>();
 
@@ -155,11 +178,11 @@ public class EncuestaRapidaService {
                         String respuestaTexto = claudeService.responderPregunta(perfil, pregunta, null);
                         log.debug("[SIMULACION-{}] Respuesta obtenida para: {}", simulacionId, perfil.getNombre());
                         Respuesta respuesta = crearRespuestaSintetica(simulacion, pregunta, perfil, respuestaTexto);
-                        guardarYAvanzar(simulacionId, respuesta);
+                        respuestaService.guardarYAvanzar(simulacionId, respuesta);
                     } catch (Exception e) {
                         log.error("[SIMULACION-{}] Error al procesar perfil {}: {}", simulacionId, perfil.getNombre(), e.getMessage(), e);
                         Respuesta error = crearRespuestaSintetica(simulacion, pregunta, perfil, "[Error al obtener respuesta]");
-                        guardarYAvanzar(simulacionId, error);
+                        respuestaService.guardarYAvanzar(simulacionId, error);
                     }
                 });
                 futures.add(future);
@@ -181,12 +204,21 @@ public class EncuestaRapidaService {
         }
 
         Simulacion finalizada = simulacionRepository.findById(simulacionId).orElseThrow();
-        finalizada.setEstado(EstadoSimulacion.COMPLETA);
+        long errores = respuestaRepository.countErroresBySimulacionId(simulacionId);
+        boolean todoError = errores > 0 && errores >= finalizada.getTotalRespuestas();
+
+        finalizada.setEstado(todoError ? EstadoSimulacion.ERROR : EstadoSimulacion.COMPLETA);
         finalizada.setFinalizadoEn(LocalDateTime.now());
         simulacionRepository.save(finalizada);
 
-        log.info("[SIMULACION-{}] COMPLETA. {}/{} respuestas guardadas.", simulacionId,
-                finalizada.getRespuestasCompletadas(), finalizada.getTotalRespuestas());
+        if (todoError) {
+            log.warn("[SIMULACION-{}] ERROR: todas las respuestas fallaron. Devolviendo {} créditos.", simulacionId, finalizada.getTotalRespuestas());
+            simulacionRepository.findUsuarioEmailBySimulacionId(simulacionId)
+                    .ifPresent(email -> usuarioService.devolverCreditos(email, finalizada.getTotalRespuestas()));
+        } else {
+            log.info("[SIMULACION-{}] COMPLETA. {}/{} respuestas guardadas ({} errores).",
+                    simulacionId, finalizada.getRespuestasCompletadas(), finalizada.getTotalRespuestas(), errores);
+        }
     }
 
     private Respuesta crearRespuestaSintetica(Simulacion simulacion, Pregunta pregunta,
@@ -195,8 +227,6 @@ public class EncuestaRapidaService {
         r.setSimulacion(simulacion);
         r.setPregunta(pregunta);
         r.setRespuestaTexto(texto);
-        // Persistir los datos demográficos del perfil efímero
-        r.setPerfilResumen(perfil.toResumen());
         r.setPerfilNombre(perfil.getNombre());
         r.setPerfilEdad(perfil.getEdad());
         r.setPerfilSexo(perfil.getSexo());
@@ -208,14 +238,29 @@ public class EncuestaRapidaService {
         return r;
     }
 
-    @Transactional
-    synchronized void guardarYAvanzar(Long simulacionId, Respuesta respuesta) {
-        respuestaRepository.save(respuesta);
-        Simulacion sim = simulacionRepository.findById(simulacionId).orElseThrow();
-        sim.setRespuestasCompletadas(sim.getRespuestasCompletadas() + 1);
-        simulacionRepository.save(sim);
-        log.debug("[SIMULACION-{}] Progreso: {}/{}", simulacionId,
-                sim.getRespuestasCompletadas(), sim.getTotalRespuestas());
+    public Simulacion lanzarContrapregunta(Long simulacionIdOriginal, String nuevaPregunta, String emailUsuario) {
+        log.info("[CONTRAPREGUNTA] Lanzando contrapregunta para simulacionId={}", simulacionIdOriginal);
+
+        List<Respuesta> respuestasOriginales = respuestaRepository.findBySimulacionId(simulacionIdOriginal);
+        if (respuestasOriginales.isEmpty()) {
+            throw new RuntimeException("La simulación original no tiene respuestas");
+        }
+
+        List<PerfilSintetico> perfiles = respuestasOriginales.stream()
+                .map(PerfilSintetico::fromRespuesta)
+                .toList();
+
+        int cantidad = perfiles.size();
+        Usuario usuario = usuarioService.descontarCreditos(emailUsuario, cantidad);
+        log.info("[CONTRAPREGUNTA] {} créditos descontados para {}", cantidad, emailUsuario);
+
+        Long[] ids = guardarEncuestaYPregunta(nuevaPregunta, usuario);
+        Simulacion simulacion = guardarSimulacion(ids[0], cantidad);
+
+        ejecutarAsync(simulacion.getId(), perfiles, ids[1]);
+        log.info("[CONTRAPREGUNTA] Simulación {} iniciada", simulacion.getId());
+
+        return simulacion;
     }
 
     public List<Respuesta> obtenerRespuestas(Long simulacionId) {

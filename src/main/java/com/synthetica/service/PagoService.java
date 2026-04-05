@@ -30,25 +30,47 @@ public class PagoService {
     public static class PlanInfo {
         private final String titulo;
         private final BigDecimal precio;
-        private final int creditos;
         private final Usuario.Plan plan;
 
-        public PlanInfo(String titulo, BigDecimal precio, int creditos, Usuario.Plan plan) {
+        public PlanInfo(String titulo, BigDecimal precio, Usuario.Plan plan) {
             this.titulo = titulo;
             this.precio = precio;
-            this.creditos = creditos;
             this.plan = plan;
         }
 
         public String getTitulo() { return titulo; }
         public BigDecimal getPrecio() { return precio; }
-        public int getCreditos() { return creditos; }
+        public int getCreditos() { return plan.getCreditosBase(); }
         public Usuario.Plan getPlan() { return plan; }
     }
 
     public static final Map<String, PlanInfo> PLANES = Map.of(
-        "STARTER", new PlanInfo("Plan Starter - Synthetica", new BigDecimal("11000"), 500, Usuario.Plan.STARTER),
-        "PRO",     new PlanInfo("Plan Pro - Synthetica",     new BigDecimal("36000"), 2000, Usuario.Plan.PRO)
+        "STARTER",  new PlanInfo("Plan Starter - Synthetica",  new BigDecimal("4990"),  Usuario.Plan.STARTER),
+        "BASIC",    new PlanInfo("Plan Basic - Synthetica",    new BigDecimal("8990"),  Usuario.Plan.BASIC),
+        "PRO",      new PlanInfo("Plan Pro - Synthetica",      new BigDecimal("22990"), Usuario.Plan.PRO),
+        "BUSINESS", new PlanInfo("Plan Business - Synthetica", new BigDecimal("64990"), Usuario.Plan.BUSINESS)
+    );
+
+    public static class CreditPackInfo {
+        private final String titulo;
+        private final BigDecimal precio;
+        private final int creditos;
+
+        public CreditPackInfo(String titulo, BigDecimal precio, int creditos) {
+            this.titulo = titulo;
+            this.precio = precio;
+            this.creditos = creditos;
+        }
+
+        public String getTitulo() { return titulo; }
+        public BigDecimal getPrecio() { return precio; }
+        public int getCreditos() { return creditos; }
+    }
+
+    public static final Map<String, CreditPackInfo> CREDIT_PACKS = Map.of(
+        "PACK_MINI",  new CreditPackInfo("Recarga Mini - Synthetica",   new BigDecimal("2490"),  200),
+        "PACK_MEDIA", new CreditPackInfo("Recarga Media - Synthetica",  new BigDecimal("4990"),  500),
+        "PACK_GRANDE",new CreditPackInfo("Recarga Grande - Synthetica", new BigDecimal("8490"), 1000)
     );
 
     private final UsuarioRepository usuarioRepository;
@@ -88,15 +110,20 @@ public class PagoService {
     }
 
     public Map<String, String> iniciarTransaccion(Long usuarioId, String planNombre) {
-        PlanInfo config = PLANES.get(planNombre.toUpperCase());
-        if (config == null) {
+        String key = planNombre.toUpperCase();
+        double amount;
+
+        if (PLANES.containsKey(key)) {
+            amount = PLANES.get(key).getPrecio().doubleValue();
+        } else if (CREDIT_PACKS.containsKey(key)) {
+            amount = CREDIT_PACKS.get(key).getPrecio().doubleValue();
+        } else {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "Plan no válido. Opciones: STARTER, PRO");
+                "Producto no válido. Planes: STARTER, BASIC, PRO, BUSINESS. Paquetes: PACK_MINI, PACK_MEDIA, PACK_GRANDE");
         }
 
-        String buyOrder = usuarioId + "-" + planNombre.toUpperCase() + "-" + System.currentTimeMillis();
+        String buyOrder = usuarioId + "-" + key + "-" + System.currentTimeMillis();
         String sessionId = UUID.randomUUID().toString();
-        double amount = config.getPrecio().doubleValue();
         String returnUrl = backendUrl + "/api/pagos/confirmar";
 
         try {
@@ -137,15 +164,19 @@ public class PagoService {
 
             // buyOrder formato: "userId-PLAN-timestamp"
             String buyOrder = response.getBuyOrder();
-            String[] partes = buyOrder.split("-", 3);
-            Long usuarioId = Long.parseLong(partes[0]);
-            String planNombre = partes[1];
-
-            PlanInfo config = PLANES.get(planNombre);
-            if (config == null) {
-                log.warn("Plan desconocido en buyOrder {}", buyOrder);
-                return frontendUrl + "/pagos/error";
+            String[] partes = buyOrder != null ? buyOrder.split("-", 3) : new String[0];
+            if (partes.length < 2) {
+                log.error("buyOrder con formato inválido: '{}' para token {}. Pago procesado pero no acreditado — revisión manual requerida.", buyOrder, token);
+                return frontendUrl + "/pagos/error?motivo=formato_invalido";
             }
+            Long usuarioId;
+            try {
+                usuarioId = Long.parseLong(partes[0]);
+            } catch (NumberFormatException e) {
+                log.error("userId no numérico en buyOrder '{}' para token {}. Revisión manual requerida.", buyOrder, token);
+                return frontendUrl + "/pagos/error?motivo=formato_invalido";
+            }
+            String planNombre = partes[1];
 
             Usuario usuario = usuarioRepository.findById(usuarioId).orElse(null);
             if (usuario == null) {
@@ -153,21 +184,39 @@ public class PagoService {
                 return frontendUrl + "/pagos/error";
             }
 
-            usuario.setPlan(config.getPlan());
-            usuario.setCreditosTotal(usuario.getCreditosTotal() + config.getCreditos());
+            int creditosOtorgados;
+            BigDecimal monto;
+
+            if (PLANES.containsKey(planNombre)) {
+                PlanInfo config = PLANES.get(planNombre);
+                usuario.setPlan(config.getPlan());
+                usuario.setCreditosTotal(usuario.getCreditosTotal() + config.getCreditos());
+                creditosOtorgados = config.getCreditos();
+                monto = config.getPrecio();
+                log.info("Pago Transbank confirmado: usuario {} -> plan {} +{} créditos",
+                    usuarioId, planNombre, creditosOtorgados);
+            } else if (CREDIT_PACKS.containsKey(planNombre)) {
+                CreditPackInfo pack = CREDIT_PACKS.get(planNombre);
+                usuario.setCreditosTotal(usuario.getCreditosTotal() + pack.getCreditos());
+                creditosOtorgados = pack.getCreditos();
+                monto = pack.getPrecio();
+                log.info("Pago Transbank confirmado: usuario {} -> paquete {} +{} créditos",
+                    usuarioId, planNombre, creditosOtorgados);
+            } else {
+                log.warn("Producto desconocido en buyOrder {}", buyOrder);
+                return frontendUrl + "/pagos/error";
+            }
+
             usuarioRepository.save(usuario);
 
             Suscripcion suscripcion = new Suscripcion();
             suscripcion.setUsuario(usuario);
             suscripcion.setTbkToken(token);
             suscripcion.setPlan(planNombre);
-            suscripcion.setMonto(config.getPrecio());
+            suscripcion.setMonto(monto);
             suscripcion.setEstado("AUTHORIZED");
-            suscripcion.setCreditosOtorgados(config.getCreditos());
+            suscripcion.setCreditosOtorgados(creditosOtorgados);
             suscripcionRepository.save(suscripcion);
-
-            log.info("Pago Transbank confirmado: usuario {} -> plan {} +{} créditos",
-                usuarioId, planNombre, config.getCreditos());
 
             return frontendUrl + "/pagos/exito";
 

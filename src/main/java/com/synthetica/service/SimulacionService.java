@@ -7,9 +7,11 @@ import com.synthetica.repository.RespuestaRepository;
 import com.synthetica.repository.SimulacionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -29,20 +31,35 @@ public class SimulacionService {
     private final EncuestaService encuestaService;
     private final PersonaService personaService;
     private final ClaudeService claudeService;
+    private final RespuestaService respuestaService;
 
     public SimulacionService(SimulacionRepository simulacionRepository, RespuestaRepository respuestaRepository,
-            EncuestaService encuestaService, PersonaService personaService, ClaudeService claudeService) {
+            EncuestaService encuestaService, PersonaService personaService, ClaudeService claudeService,
+            RespuestaService respuestaService) {
         this.simulacionRepository = simulacionRepository;
         this.respuestaRepository = respuestaRepository;
         this.encuestaService = encuestaService;
         this.personaService = personaService;
         this.claudeService = claudeService;
+        this.respuestaService = respuestaService;
+    }
+
+    // ── Verificar que una simulación pertenece al usuario ─────────────────────
+    public void verificarPropietario(Long simulacionId, Long usuarioId) {
+        Long propietarioId = simulacionRepository.findUsuarioIdBySimulacionId(simulacionId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Simulación no encontrada: " + simulacionId));
+        if (!propietarioId.equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso para acceder a esta simulación");
+        }
     }
 
     // ── Crear simulación y lanzarla de forma asíncrona ────────────────────────
     @Transactional
-    public Simulacion iniciar(Long encuestaId, List<Long> personaIds) {
+    public Simulacion iniciar(Long encuestaId, List<Long> personaIds, Long usuarioId) {
         Encuesta encuesta = encuestaService.obtenerPorId(encuestaId);
+        if (encuesta.getUsuario() == null || !encuesta.getUsuario().getId().equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso para usar esta encuesta");
+        }
         List<Persona> personas = personaService.obtenerPorIds(personaIds);
 
         if (personas.isEmpty()) {
@@ -97,7 +114,7 @@ public class SimulacionService {
                             respuesta.setRespuestaTexto(respuestaTexto);
                         }
 
-                        guardarRespuestaYAvanzar(simulacionId, respuesta);
+                        respuestaService.guardarYAvanzar(simulacionId, respuesta);
 
                     } catch (Exception e) {
                         log.error("Error al obtener respuesta de Claude para persona {} pregunta {}: {}",
@@ -108,7 +125,7 @@ public class SimulacionService {
                         respuestaError.setPersona(persona);
                         respuestaError.setPregunta(pregunta);
                         respuestaError.setRespuestaTexto("[Error al obtener respuesta]");
-                        guardarRespuestaYAvanzar(simulacionId, respuestaError);
+                        respuestaService.guardarYAvanzar(simulacionId, respuestaError);
                     }
                 });
 
@@ -128,22 +145,17 @@ public class SimulacionService {
         log.info("Simulacion {} completada. Total respuestas: {}", simulacionId, finalizada.getRespuestasCompletadas());
     }
 
-    // ── Guardar respuesta e incrementar contador (sincronizado) ───────────────
-    @Transactional
-    synchronized void guardarRespuestaYAvanzar(Long simulacionId, Respuesta respuesta) {
-        respuestaRepository.save(respuesta);
-        Simulacion sim = simulacionRepository.findById(simulacionId).orElseThrow();
-        sim.setRespuestasCompletadas(sim.getRespuestasCompletadas() + 1);
-        simulacionRepository.save(sim);
-    }
-
     // ── Consultar progreso ─────────────────────────────────────────────────────
     public Simulacion obtenerPorId(Long id) {
         return simulacionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Simulación no encontrada: " + id));
     }
 
-    public List<Simulacion> listarPorEncuesta(Long encuestaId) {
+    public List<Simulacion> listarPorEncuesta(Long encuestaId, Long usuarioId) {
+        Encuesta encuesta = encuestaService.obtenerPorId(encuestaId);
+        if (encuesta.getUsuario() == null || !encuesta.getUsuario().getId().equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso para ver estas simulaciones");
+        }
         return simulacionRepository.findByEncuestaIdOrderByCreadoEnDesc(encuestaId);
     }
 
@@ -167,8 +179,8 @@ public class SimulacionService {
         return null;
     }
 
-    public List<Map<String, Object>> listarRecientes() {
-        return simulacionRepository.findTop10ByOrderByCreadoEnDesc()
+    public List<Map<String, Object>> listarRecientes(Long usuarioId) {
+        return simulacionRepository.findTop10ByEncuestaUsuarioIdOrderByCreadoEnDesc(usuarioId)
                 .stream()
                 .map(s -> {
                     Map<String, Object> m = new LinkedHashMap<>();

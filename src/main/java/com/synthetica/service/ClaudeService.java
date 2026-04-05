@@ -69,7 +69,11 @@ public class ClaudeService {
         }
 
         JsonNode json = mapper.readTree(response.body());
-        return json.path("content").get(0).path("text").asText().trim();
+        JsonNode content = json.path("content");
+        if (!content.isArray() || content.isEmpty()) {
+            throw new RuntimeException("Respuesta inesperada de Claude API: " + response.body());
+        }
+        return content.get(0).path("text").asText().trim();
     }
 
     // ── Responder una pregunta como un perfil sintético ───────────────────────
@@ -103,7 +107,11 @@ public class ClaudeService {
         }
 
         JsonNode json = mapper.readTree(response.body());
-        return json.path("content").get(0).path("text").asText().trim();
+        JsonNode content = json.path("content");
+        if (!content.isArray() || content.isEmpty()) {
+            throw new RuntimeException("Respuesta inesperada de Claude API: " + response.body());
+        }
+        return content.get(0).path("text").asText().trim();
     }
 
     // ── Generar una persona aleatoria ─────────────────────────────────────────
@@ -152,7 +160,11 @@ public class ClaudeService {
         }
 
         JsonNode json = mapper.readTree(response.body());
-        return json.path("content").get(0).path("text").asText().trim();
+        JsonNode content = json.path("content");
+        if (!content.isArray() || content.isEmpty()) {
+            throw new RuntimeException("Respuesta inesperada de Claude API: " + response.body());
+        }
+        return content.get(0).path("text").asText().trim();
     }
 
     // ── Builders de prompts ───────────────────────────────────────────────────
@@ -246,6 +258,10 @@ public class ClaudeService {
         }
 
         JsonNode json = mapper.readTree(response.body());
-        return json.path("content").get(0).path("text").asText().trim();
+        JsonNode content = json.path("content");
+        if (!content.isArray() || content.isEmpty()) {
+            throw new RuntimeException("Respuesta inesperada de Claude API: " + response.body());
+        }
+        return content.get(0).path("text").asText().trim();
     }
 }

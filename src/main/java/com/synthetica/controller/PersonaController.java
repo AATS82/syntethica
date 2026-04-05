@@ -2,7 +2,9 @@ package com.synthetica.controller;
 
 import com.synthetica.model.Persona;
 import com.synthetica.service.PersonaService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,34 +21,33 @@ public class PersonaController {
     }
 
     @GetMapping
-    public List<Persona> listar() {
+    public List<Persona> listar(Authentication auth) {
         return personaService.listarTodas();
     }
 
     @GetMapping("/{id}")
-    public Persona obtener(@PathVariable Long id) {
+    public Persona obtener(@PathVariable Long id, Authentication auth) {
         return personaService.obtenerPorId(id);
     }
 
     @PostMapping
-    public Persona crear(@RequestBody Persona persona) {
+    public Persona crear(@Valid @RequestBody Persona persona, Authentication auth) {
         return personaService.crear(persona);
     }
 
     @PutMapping("/{id}")
-    public Persona actualizar(@PathVariable Long id, @RequestBody Persona persona) {
+    public Persona actualizar(@PathVariable Long id, @Valid @RequestBody Persona persona, Authentication auth) {
         return personaService.actualizar(id, persona);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> eliminar(@PathVariable Long id) {
+    public ResponseEntity<Void> eliminar(@PathVariable Long id, Authentication auth) {
         personaService.eliminar(id);
         return ResponseEntity.noContent().build();
     }
 
-    // POST /api/personas/generar?pais=Chile
     @PostMapping("/generar")
-    public ResponseEntity<?> generarAleatoria(@RequestParam(defaultValue = "Chile") String pais) {
+    public ResponseEntity<?> generarAleatoria(@RequestParam(defaultValue = "Chile") String pais, Authentication auth) {
         try {
             Persona persona = personaService.generarAleatoria(pais);
             return ResponseEntity.ok(persona);

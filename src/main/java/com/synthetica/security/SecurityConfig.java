@@ -39,33 +39,20 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Endpoints públicos
                 .requestMatchers(
-                    "/api/encuesta-rapida/**",
-                    "/api/personas/**",
                     "/api/pagos/confirmar",
                     "/api/pagos/planes",
                     "/oauth2/**",
-                    "/login/**"
+                    "/login/**",
+                    "/actuator/health"
                 ).permitAll()
-                // Todo lo demás requiere autenticación
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint((request, response, authException) -> {
-                    // API requests get 401 instead of OAuth redirect
-                    String accept = request.getHeader("Accept");
-                    String requestedWith = request.getHeader("X-Requested-With");
-                    boolean isApiRequest = (accept != null && accept.contains("application/json"))
-                            || "XMLHttpRequest".equals(requestedWith)
-                            || request.getRequestURI().startsWith("/api/");
-                    if (isApiRequest) {
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setContentType("application/json");
-                        response.getWriter().write("{\"error\":\"Unauthorized\"}");
-                    } else {
-                        response.sendRedirect("/oauth2/authorization/google");
-                    }
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"No autenticado\"}");
                 })
             )
             .oauth2Login(oauth2 -> oauth2
@@ -85,7 +72,7 @@ public class SecurityConfig {
             frontendUrl
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

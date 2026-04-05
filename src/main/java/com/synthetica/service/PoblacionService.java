@@ -566,13 +566,25 @@ public class PoblacionService {
             );
         }
 
-        /**
-         * Resumen breve para guardar en Respuesta.perfilResumen. Ej: "María
-         * González Muñoz, 34 años, Femenino, Santiago, Universitaria,
-         * Medio-alto"
-         */
-        public String toResumen() {
-            return nombre + ", " + edad + " años, " + sexo + ", " + ciudad + ", " + educacion + ", " + nivelSocioeconomico;
+        /** Reconstruye un perfil sintético a partir de los datos guardados en una Respuesta (para contrpreguntas). */
+        public static PerfilSintetico fromRespuesta(com.synthetica.model.Respuesta r) {
+            return new PerfilSintetico(
+                    nvl(r.getPerfilNombre(), "Participante"),
+                    r.getPerfilEdad() != null ? r.getPerfilEdad() : 30,
+                    nvl(r.getPerfilSexo(), ""),
+                    nvl(r.getPerfilPais(), "Chile"),
+                    "",
+                    nvl(r.getPerfilCiudad(), ""),
+                    "",
+                    nvl(r.getPerfilEducacion(), ""),
+                    nvl(r.getPerfilOcupacion(), ""),
+                    nvl(r.getPerfilNse(), ""),
+                    "", "", "", "", "", "", "", "", "", "", "", ""
+            );
+        }
+
+        private static String nvl(String v, String fallback) {
+            return v != null ? v : fallback;
         }
 
         public String getNombre() {
